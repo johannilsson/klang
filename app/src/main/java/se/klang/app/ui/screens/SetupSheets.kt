@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -19,8 +22,13 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -36,9 +44,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import se.klang.app.AppViewModel
@@ -98,8 +105,8 @@ fun TopBarMenu(vm: AppViewModel, screen: Screen) {
     if (items.isEmpty()) return
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(enabled = !vm.isCapturing, onClick = { open = true }, modifier = Modifier.semantics { contentDescription = "More options" }) {
-            Text("⋮", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
+        IconButton(enabled = !vm.isCapturing, onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "More options")
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             items.forEach { (label, action) ->
@@ -181,6 +188,7 @@ private fun AddPositionSheet(vm: AppViewModel, roomId: String, onDismiss: () -> 
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NewSessionSheet(vm: AppViewModel, roomId: String, onDismiss: () -> Unit) {
     val room = vm.room(roomId) ?: return onDismiss()
@@ -198,12 +206,14 @@ private fun NewSessionSheet(vm: AppViewModel, roomId: String, onDismiss: () -> U
 
     KlangSheet(onDismiss) {
         SheetTitle("New session", "Records at all ${room.positions.size} positions of ${room.name}.")
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            SessionKind.entries.forEach { k ->
-                FilterChip(
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SessionKind.entries.forEachIndexed { i, k ->
+                SegmentedButton(
                     selected = kind == k,
                     onClick = { kind = k; name = vm.defaultSessionName(roomId, k, kindLabel(k)) },
-                    label = { Text(kindLabel(k)) },
+                    shape = SegmentedButtonDefaults.itemShape(i, SessionKind.entries.size),
+                    icon = {},
+                    label = { Text(if (k == SessionKind.REPEAT_BASELINE) "Repeat" else kindLabel(k), maxLines = 1) },
                 )
             }
         }
@@ -244,8 +254,13 @@ private fun NewSessionSheet(vm: AppViewModel, roomId: String, onDismiss: () -> U
                     Field(doors, { doors = it }, "Doors and windows")
                     Field(furnishings, { furnishings = it }, "Furnishings")
                     Field(occupancy, { occupancy = it }, "People in the room")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(appliancesOff, { appliancesOff = it }); Text("Dishwasher, extractor fan etc. off")
+                    Row(
+                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                            .toggleable(value = appliancesOff, role = Role.Checkbox, onValueChange = { appliancesOff = it }),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(appliancesOff, onCheckedChange = null)
+                        Text("Dishwasher, extractor fan etc. off", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 12.dp))
                     }
                 }
             }
@@ -297,10 +312,11 @@ private fun ConditionsSheet(session: Session, onDismiss: () -> Unit) {
             // Sessions from before clap spots moved to positions may carry their own source description.
             "Clap source (session)" to c.sourcePosition,
         ).filter { (k, v) -> v.isNotBlank() || k != "Clap source (session)" }.forEach { (k, v) ->
-            Row {
-                Text(k, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(150.dp))
-                Text(v.ifBlank { "—" }, style = MaterialTheme.typography.bodyMedium)
-            }
+            ListItem(
+                overlineContent = { Text(k) },
+                headlineContent = { Text(v.ifBlank { "Not noted" }) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { TextButton(onClick = onDismiss) { Text("Close") } }
     }

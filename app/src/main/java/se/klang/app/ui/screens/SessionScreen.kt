@@ -3,20 +3,34 @@ package se.klang.app.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
-import se.klang.app.CaptureUi
 import se.klang.app.Screen
 import se.klang.app.Sheet
 import se.klang.app.ui.theme.ValidColor
@@ -57,7 +70,11 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
         pending?.let { (pos, kind) -> vm.record(sessionId, pos, kind) }
     }
 
-    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -71,22 +88,35 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                     TextButton(onClick = { vm.sheet = Sheet.Conditions(sessionId) }) { Text("Conditions") }
                 }
                 val stale = attempts.count { it.kind == AttemptKind.IMPULSE && it.analysis(AnalysisConfiguration.VERSION) == null }
-                if (stale > 0) TextButton(onClick = { vm.reanalyze(sessionId) }) { Text("Analyse $stale recording(s) with algorithm ${AnalysisConfiguration.VERSION}") }
+                if (stale > 0) {
+                    FilledTonalButton(onClick = { vm.reanalyze(sessionId) }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("Analyse $stale recording(s) with algorithm ${AnalysisConfiguration.VERSION}")
+                    }
+                }
                 CapturePanel(vm) { id -> attempts.firstOrNull { it.id == id }?.let { LastAttemptSummary(it) } }
                 OutlinedCard(onClick = { vm.sheet = Sheet.HowToClap }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("How to clap · practice level", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    ListItem(
+                        leadingContent = { Icon(Icons.Outlined.Info, contentDescription = null) },
+                        headlineContent = { Text("How to clap") },
+                        supportingContent = { Text("Tips and practice clap level") },
+                        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    )
                 }
                 if (room.positions.isEmpty()) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(
                                 "This room has no positions yet. Positions belong to the room, so every session measures the same spots.",
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            Button(onClick = { vm.sheet = Sheet.AddPosition(room.id) }) { Text("Add position to room") }
+                            Button(onClick = { vm.sheet = Sheet.AddPosition(room.id) }, modifier = Modifier.align(Alignment.End)) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                                Text("Add position")
+                            }
                         }
                     }
                 }
@@ -99,39 +129,46 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
             val usable = impulses.count { a -> a.latestAnalysis()?.bands?.any { it.centerHz in setOf(500, 1000, 2000) && it.t20 != null } == true }
             val done = usable >= TARGET_ATTEMPTS && backgrounds.isNotEmpty()
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (done) NumberBadge("✓", ValidColor, Color.White) else NumberBadge("${index + 1}")
-                        Column(Modifier.weight(1f)) {
-                            Text(p.name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                if (p.clapSpot.isNotBlank()) "Clap spot: ${p.clapSpot}" else "No clap spot noted",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            if (p.placementNotes.isNotBlank()) {
-                                Text("Phone: ${p.placementNotes}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                ListItem(
+                    leadingContent = {
+                        if (done) NumberBadge("", ValidColor, Color.White, done = true) else NumberBadge("${index + 1}")
+                    },
+                    headlineContent = { Text(p.name) },
+                    supportingContent = {
+                        Column {
+                            Text(if (p.clapSpot.isNotBlank()) "Clap spot: ${p.clapSpot}" else "No clap spot noted")
+                            if (p.placementNotes.isNotBlank()) Text("Phone: ${p.placementNotes}")
                         }
-                    }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        (if (backgrounds.isEmpty()) "No background" else "Background ✓") +
-                            " · $usable/$TARGET_ATTEMPTS usable claps" +
+                        (if (backgrounds.isEmpty()) "No background yet" else "Background recorded") +
+                            " · $usable of $TARGET_ATTEMPTS usable claps" +
                             if (impulses.size > usable) " (${impulses.size} attempts)" else "",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(enabled = !busy, modifier = Modifier.weight(1f), onClick = { pending = p.id to AttemptKind.BACKGROUND; start() }) { Text("Background") }
                         Button(enabled = !busy, modifier = Modifier.weight(1f), onClick = { pending = p.id to AttemptKind.IMPULSE; start() }) { Text("Record clap") }
                     }
-                    impulses.forEach { a -> AttemptRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) } }
-                    backgrounds.forEach { a ->
-                        Text("Background #${a.sequence}${if (a.captureEvents.isNotEmpty()) " ⚠ ${a.captureEvents.size} capture event(s)" else ""}", style = MaterialTheme.typography.bodySmall)
+                    if (impulses.isNotEmpty() || backgrounds.isNotEmpty()) Column {
+                        impulses.forEach { a -> AttemptRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) } }
+                        backgrounds.forEach { a ->
+                            HorizontalDivider()
+                            Text(
+                                "Background #${a.sequence}${if (a.captureEvents.isNotEmpty()) " · ${a.captureEvents.size} capture event(s)" else ""}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (a.captureEvents.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(vertical = 10.dp),
+                            )
+                        }
                     }
                 }
             }
         }
-        item { Spacer(Modifier.height(16.dp)) }
     }
 }
 
@@ -139,7 +176,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
 private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
     val an = a.latestAnalysis()
     HorizontalDivider()
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("#${a.sequence}", modifier = Modifier.padding(end = 4.dp))
         if (an == null) Text("not analysed") else an.bands.forEach { b ->
             Column(horizontalAlignment = Alignment.CenterHorizontally) {

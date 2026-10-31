@@ -5,19 +5,28 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,95 +63,122 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
     val room = vm.room(roomId) ?: return
     val sessions = vm.sessions(roomId)
 
-    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp)) {
         if (room.notes.isNotBlank()) item {
-            Text(room.notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                room.notes,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+            )
         }
         if (room.positions.isEmpty() || sessions.isEmpty()) item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Card(
+                Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+            ) {
+                Column(Modifier.padding(start = 16.dp, top = 16.dp, end = 8.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Set up this room once", style = MaterialTheme.typography.titleMedium)
                     Text("1. Add the positions where the phone will stand, each with its clap spot.", style = MaterialTheme.typography.bodyMedium)
                     Text("2. Then start a baseline session and record at every position.", style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = { vm.sheet = Sheet.Protocol }) { Text("Read the full protocol") }
+                    TextButton(onClick = { vm.sheet = Sheet.Protocol }, modifier = Modifier.align(Alignment.End)) { Text("Read the protocol") }
                 }
             }
         }
 
-        item { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SectionHeader("Positions · ${room.positions.size}") {
-                TextButton(onClick = { vm.sheet = Sheet.AddPosition(roomId) }) { Text("+ Add position") }
-            }
-            if (room.positions.isEmpty()) {
-                Text("No positions yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else {
-                Card(Modifier.fillMaxWidth()) {
-                    room.positions.forEachIndexed { i, p ->
-                        if (i > 0) HorizontalDivider()
-                        PositionRow(i + 1, p)
-                    }
+        item {
+            SectionHeader("Positions") {
+                TextButton(onClick = { vm.sheet = Sheet.AddPosition(roomId) }) {
+                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                    Text("Add")
                 }
             }
-        } }
-
-        item { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SectionHeader("Sessions · ${sessions.size}")
-            if (sessions.isEmpty()) {
-                Text(
-                    if (room.positions.isEmpty()) "Add a position first, then start a baseline." else "No sessions yet. Start with a baseline.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        }
+        if (room.positions.isEmpty()) item { EmptyText("No positions yet.") }
+        else item {
+            Card(Modifier.fillMaxWidth()) {
+                room.positions.forEachIndexed { i, p ->
+                    if (i > 0) HorizontalDivider(Modifier.padding(start = 72.dp))
+                    PositionItem(i + 1, p)
+                }
             }
-        } }
-        items(sessions, key = { it.id }) { s ->
-            Card(Modifier.fillMaxWidth().clickable { vm.navigate(Screen.SessionDetail(s.id)) }) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                        KindChip(s.kind)
-                    }
-                    Text(
-                        (if (s.intervention.isNotBlank()) "${s.intervention} · " else "") + "${vm.attempts(s.id).size} recordings",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        }
+
+        item { SectionHeader("Sessions") }
+        if (sessions.isEmpty()) item {
+            EmptyText(if (room.positions.isEmpty()) "Add a position first, then start a baseline." else "No sessions yet. Start with a baseline.")
+        }
+        else item {
+            Card(Modifier.fillMaxWidth()) {
+                sessions.forEachIndexed { i, s ->
+                    if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
+                    ListItem(
+                        headlineContent = { Text(s.name) },
+                        supportingContent = {
+                            Text((if (s.intervention.isNotBlank()) "${s.intervention} · " else "") + "${vm.attempts(s.id).size} recordings")
+                        },
+                        trailingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                KindChip(s.kind)
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                            }
+                        },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable { vm.navigate(Screen.SessionDetail(s.id)) },
                     )
                 }
             }
         }
-        // Room for the floating action button.
-        item { Spacer(Modifier.height(88.dp)) }
     }
 }
 
+/** Material list subheader: primary-coloured label, optional trailing action. */
 @Composable
-private fun SectionHeader(title: String, action: @Composable () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+fun SectionHeader(title: String, action: @Composable () -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 4.dp, top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
         action()
     }
 }
 
 @Composable
-private fun PositionRow(number: Int, p: MeasurementPosition) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        NumberBadge(number.toString())
-        Column {
-            Text(p.name, style = MaterialTheme.typography.bodyLarge)
-            val detail = listOfNotNull(p.placementNotes.takeIf { it.isNotBlank() }, p.clapSpot.takeIf { it.isNotBlank() }?.let { "Clap: $it" })
-            Text(
-                detail.joinToString(" · ").ifEmpty { "No placement notes" },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+private fun EmptyText(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+    )
 }
 
 @Composable
-fun NumberBadge(text: String, container: Color = MaterialTheme.colorScheme.secondaryContainer, content: Color = MaterialTheme.colorScheme.onSecondaryContainer) {
-    Box(Modifier.size(32.dp).background(container, CircleShape), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.labelLarge, color = content)
+private fun PositionItem(number: Int, p: MeasurementPosition) {
+    ListItem(
+        leadingContent = { NumberBadge(number.toString()) },
+        headlineContent = { Text(p.name) },
+        supportingContent = {
+            val detail = listOfNotNull(p.placementNotes.takeIf { it.isNotBlank() }, p.clapSpot.takeIf { it.isNotBlank() }?.let { "Clap: $it" })
+            Text(detail.joinToString(" · ").ifEmpty { "No placement notes" })
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
+}
+
+/** Circular leading badge for list items (position number, or a check when done). */
+@Composable
+fun NumberBadge(
+    text: String,
+    container: Color = MaterialTheme.colorScheme.secondaryContainer,
+    content: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    done: Boolean = false,
+) {
+    Box(Modifier.size(40.dp).background(container, CircleShape), contentAlignment = Alignment.Center) {
+        if (done) Icon(Icons.Filled.Check, contentDescription = "Done", tint = content)
+        else Text(text, style = MaterialTheme.typography.titleMedium, color = content)
     }
 }
 
@@ -155,7 +191,7 @@ fun KindChip(kind: SessionKind) {
         kindLabel(kind),
         style = MaterialTheme.typography.labelMedium,
         color = fg,
-        modifier = Modifier.background(bg, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 2.dp),
+        modifier = Modifier.background(bg, MaterialTheme.shapes.small).padding(horizontal = 8.dp, vertical = 2.dp),
     )
 }
 
