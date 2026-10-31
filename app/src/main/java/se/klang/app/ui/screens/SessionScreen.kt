@@ -1,6 +1,9 @@
 package se.klang.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
 import se.klang.app.Screen
@@ -50,10 +56,13 @@ import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
 import se.klang.app.ui.fmt
+import se.klang.app.ui.stateColor
+import se.klang.app.ui.stateLabel
 import se.klang.app.ui.rememberWithMicPermission
 import se.klang.dsp.AnalysisConfiguration
 import se.klang.dsp.QualityState
 import se.klang.sessions.AttemptKind
+import se.klang.sessions.BandRecord
 import se.klang.sessions.CaptureAttempt
 
 private const val TARGET_ATTEMPTS = 5
@@ -154,38 +163,102 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                         OutlinedButton(enabled = !busy, modifier = Modifier.weight(1f), onClick = { pending = p.id to AttemptKind.BACKGROUND; start() }) { Text("Background") }
                         Button(enabled = !busy, modifier = Modifier.weight(1f), onClick = { pending = p.id to AttemptKind.IMPULSE; start() }) { Text("Record clap") }
                     }
-                    if (impulses.isNotEmpty() || backgrounds.isNotEmpty()) Column {
-                        impulses.forEach { a -> AttemptRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) } }
-                        backgrounds.forEach { a ->
-                            HorizontalDivider()
-                            Text(
-                                "Background #${a.sequence}${if (a.captureEvents.isNotEmpty()) " · ${a.captureEvents.size} capture event(s)" else ""}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (a.captureEvents.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 10.dp),
-                            )
-                        }
+                }
+                // Recordings sit outside the padded column so each row gets the standard
+                // Material list-item insets (16 dp sides) and dividers line up with the text.
+                if (impulses.isNotEmpty() || backgrounds.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        "Recordings · T20 in seconds per octave band",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                    )
+                    impulses.forEachIndexed { i, a ->
+                        if (i > 0) RecordingDivider()
+                        AttemptRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) }
                     }
+                    backgrounds.forEachIndexed { i, a ->
+                        if (i > 0 || impulses.isNotEmpty()) RecordingDivider()
+                        BackgroundRow(a)
+                    }
+                    Spacer(Modifier.height(8.dp))
                 }
             }
         }
     }
 }
 
+/** Divider inset to the list text: 16 dp padding + 40 dp leading badge + 16 dp gap. */
+@Composable
+private fun RecordingDivider() = HorizontalDivider(Modifier.padding(start = 72.dp))
+
+/** Leading 40 dp badge for a recording, tinted by its quality state (grey when not analysed). */
+@Composable
+private fun RecordingBadge(text: String, state: QualityState?) {
+    val tint = state?.let { stateColor(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
+    Box(Modifier.size(40.dp).background(tint.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+        Text(text, style = MaterialTheme.typography.labelLarge, color = tint)
+    }
+}
+
+/**
+ * A clap attempt as a Material three-line list item: 16 dp side padding, 12 dp vertical padding,
+ * 88 dp minimum height. Bands show their T20 value with a state dot; invalid bands show no number.
+ */
 @Composable
 private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
     val an = a.latestAnalysis()
-    HorizontalDivider()
-    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onClick).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("#${a.sequence}", modifier = Modifier.padding(end = 4.dp))
-        if (an == null) Text("not analysed") else an.bands.forEach { b ->
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("${b.centerHz}", style = MaterialTheme.typography.labelSmall)
-                StateChip(b.state)
-                Text(fmt(b.t20?.seconds), style = MaterialTheme.typography.labelSmall)
+    ListItem(
+        leadingContent = { RecordingBadge("${a.sequence}", an?.state) },
+        headlineContent = {
+            Text(if (an == null) "Clap ${a.sequence} · not analysed" else "Clap ${a.sequence} · ${stateLabel(an.state)}")
+        },
+        supportingContent = {
+            if (an != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    an.bands.forEach { b -> BandCell(b, Modifier.weight(1f)) }
+                }
             }
+        },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.heightIn(min = 88.dp).clickable(onClick = onClick),
+    )
+}
+
+@Composable
+private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
+    val value = if (b.state == QualityState.INVALID) null else b.t20?.seconds
+    val description = "${b.centerHz} Hz, ${stateLabel(b.state)}" + (value?.let { ", ${fmt(it)} seconds" } ?: "")
+    Column(
+        modifier.clearAndSetSemantics { contentDescription = description },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(if (b.centerHz >= 1000) "${b.centerHz / 1000}k" else "${b.centerHz}", style = MaterialTheme.typography.labelSmall)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+            Box(Modifier.size(6.dp).background(stateColor(b.state), CircleShape))
+            Text(fmt(value), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
         }
     }
+}
+
+/** A background recording as a two-line list item (72 dp). */
+@Composable
+private fun BackgroundRow(a: CaptureAttempt) {
+    val events = a.captureEvents.size
+    ListItem(
+        leadingContent = { RecordingBadge("${a.sequence}", null) },
+        headlineContent = { Text("Background ${a.sequence}") },
+        supportingContent = {
+            Text(
+                if (events == 0) "No capture events" else "$events capture event(s)",
+                color = if (events > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
 }
 
 @Composable
