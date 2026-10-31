@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +42,13 @@ import se.klang.dsp.ReasonCode
 import se.klang.sessions.Curve
 import se.klang.sessions.Fit
 import java.util.Locale
+
+/**
+ * Screen insets for scrolling content: 16 dp margins (Material compact width), 8 dp under the top bar,
+ * 24 dp at the end. Screens with a floating action button use [FabScreenPadding] so the last item clears it.
+ */
+val ScreenPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp)
+val FabScreenPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp)
 
 fun fmt(v: Double?, digits: Int = 2): String = v?.let { String.format(Locale.ROOT, "%.${digits}f", it) } ?: "—"
 
@@ -85,9 +93,10 @@ fun StateChip(state: QualityState, modifier: Modifier = Modifier) {
 
 @Composable
 fun SectionCard(title: String, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Card(modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+    // 16 dp inside, 8 dp between lines; spacing between cards comes from the list (12 dp).
+    Card(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 4.dp))
             content()
         }
     }

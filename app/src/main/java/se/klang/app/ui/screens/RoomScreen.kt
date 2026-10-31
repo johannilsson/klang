@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -38,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
 import se.klang.app.Screen
 import se.klang.app.Sheet
+import se.klang.app.ui.FabScreenPadding
 import se.klang.sessions.MeasurementPosition
 import se.klang.sessions.SessionKind
 
@@ -63,13 +63,13 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
     val room = vm.room(roomId) ?: return
     val sessions = vm.sessions(roomId)
 
-    LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp)) {
+    LazyColumn(modifier.fillMaxSize(), contentPadding = FabScreenPadding) {
         if (room.notes.isNotBlank()) item {
             Text(
                 room.notes,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
             )
         }
         if (room.positions.isEmpty() || sessions.isEmpty()) item {
@@ -137,7 +137,7 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
 @Composable
 fun SectionHeader(title: String, action: @Composable () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 4.dp, top = 8.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
@@ -151,7 +151,7 @@ private fun EmptyText(text: String) {
         text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+        modifier = Modifier.padding(vertical = 8.dp),
     )
 }
 

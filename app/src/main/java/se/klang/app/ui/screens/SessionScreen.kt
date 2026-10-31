@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +51,7 @@ import se.klang.app.AppViewModel
 import se.klang.app.Screen
 import se.klang.app.Sheet
 import se.klang.app.ui.theme.ValidColor
+import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
@@ -81,7 +81,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
 
     LazyColumn(
         modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        contentPadding = ScreenPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -212,7 +212,7 @@ private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
     // Same insets and text styles as a three-line Material list item, but with the badge and chevron
     // centred vertically (ListItem top-aligns them in three-line rows).
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 88.dp).clickable(onClick = onClick).padding(start = 16.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+        Modifier.fillMaxWidth().heightIn(min = 88.dp).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {

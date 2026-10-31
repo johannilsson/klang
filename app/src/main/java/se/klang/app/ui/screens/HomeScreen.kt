@@ -2,7 +2,6 @@ package se.klang.app.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
 import se.klang.app.Screen
+import se.klang.app.ui.FabScreenPadding
 
 @Composable
 fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
@@ -32,7 +32,7 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
 
     LazyColumn(
         modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+        contentPadding = FabScreenPadding,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -42,7 +42,6 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     "useful for before/after comparison, not a calibrated or certified measurement.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             )
         }
         if (rooms.isEmpty()) {
@@ -66,7 +65,6 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     "No rooms yet. Tap New room to start.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
                 )
             }
         } else {

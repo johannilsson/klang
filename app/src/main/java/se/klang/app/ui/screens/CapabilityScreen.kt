@@ -3,6 +3,7 @@ package se.klang.app.ui.screens
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import se.klang.app.AppViewModel
 import se.klang.app.CaptureUi
+import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.fmt
@@ -36,7 +38,11 @@ fun CapabilityScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     val caps = vm.capabilities
     val startTest = rememberWithMicPermission(onDenied = { vm.permissionDenied() }) { vm.runTestCapture() }
 
-    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = ScreenPadding,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             SectionCard("Device") {
                 if (caps == null) Text("Reading capabilities…") else {
