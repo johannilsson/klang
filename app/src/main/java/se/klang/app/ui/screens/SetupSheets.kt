@@ -73,15 +73,15 @@ fun SheetHost(vm: AppViewModel) {
 fun TopBarMenu(vm: AppViewModel, screen: Screen) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    fun export(roomId: String) {
+        scope.launch { context.startActivity(Intent.createChooser(vm.exportRoom(roomId, emptyList()), "Export room")) }
+    }
     val items: List<Pair<String, () -> Unit>> = when (screen) {
         Screen.Home -> listOf("Microphone check" to { vm.navigate(Screen.Capability) })
         is Screen.RoomDetail -> listOf(
             "Measurement protocol" to { vm.sheet = Sheet.Protocol },
             "Compare sessions" to { vm.navigate(Screen.Compare(screen.roomId)) },
-            "Export all" to {
-                scope.launch { context.startActivity(Intent.createChooser(vm.exportRoom(screen.roomId, emptyList()), "Export room")) }
-                Unit
-            },
+            "Export all" to { export(screen.roomId) },
             "Microphone check" to { vm.navigate(Screen.Capability) },
         )
         is Screen.SessionDetail -> {
