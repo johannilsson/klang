@@ -209,22 +209,28 @@ private fun RecordingBadge(text: String, state: QualityState?) {
 @Composable
 private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
     val an = a.latestAnalysis()
-    ListItem(
-        leadingContent = { RecordingBadge("${a.sequence}", an?.state) },
-        headlineContent = {
-            Text(if (an == null) "Clap ${a.sequence} · not analysed" else "Clap ${a.sequence} · ${stateLabel(an.state)}")
-        },
-        supportingContent = {
+    // Same insets and text styles as a three-line Material list item, but with the badge and chevron
+    // centred vertically (ListItem top-aligns them in three-line rows).
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 88.dp).clickable(onClick = onClick).padding(start = 16.dp, end = 24.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        RecordingBadge("${a.sequence}", an?.state)
+        Column(Modifier.weight(1f)) {
+            Text(
+                if (an == null) "Clap ${a.sequence} · not analysed" else "Clap ${a.sequence} · ${stateLabel(an.state)}",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             if (an != null) {
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     an.bands.forEach { b -> BandCell(b, Modifier.weight(1f)) }
                 }
             }
-        },
-        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        modifier = Modifier.heightIn(min = 88.dp).clickable(onClick = onClick),
-    )
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
