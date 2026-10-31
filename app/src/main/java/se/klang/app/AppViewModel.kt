@@ -11,6 +11,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.klang.app.audio.AudioCapabilities
@@ -37,6 +39,7 @@ import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
 import se.klang.sessions.SessionStore
 import java.io.File
+import kotlin.math.max
 
 /** Simple stack navigation without extra dependencies. */
 sealed interface Screen {
@@ -50,8 +53,17 @@ sealed interface Screen {
 
 sealed interface CaptureUi {
     data object Idle : CaptureUi
-    /** [phase]: QUIET (background pre-roll), CLAP (prompt), LISTEN (decay), BACKGROUND (background-only recording). */
-    data class Recording(val phase: String, val elapsed: Double, val total: Double, val kind: AttemptKind) : CaptureUi
+    /** "Get ready" pause before the microphone opens, so the button tap is not in the background recording. */
+    data class Countdown(val secondsLeft: Int, val kind: AttemptKind) : CaptureUi
+    /**
+     * [phase]: QUIET (background pre-roll), CLAP (prompt), LISTEN (decay), BACKGROUND (background-only recording).
+     * [levelDbfs] is the peak of the last ~50 ms; [clapPeakDbfs] is the loudest level since the clap prompt.
+     * Both are relative to digital full scale, not SPL.
+     */
+    data class Recording(
+        val phase: String, val elapsed: Double, val total: Double, val kind: AttemptKind,
+        val levelDbfs: Double = -120.0, val clapPeakDbfs: Double = -120.0,
+    ) : CaptureUi
     data object Analyzing : CaptureUi
     data class Done(val attemptId: String) : CaptureUi
     data class Problem(val message: String) : CaptureUi
@@ -73,12 +85,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var capture by mutableStateOf<CaptureUi>(CaptureUi.Idle)
         private set
 
+    val isCapturing: Boolean
+        get() = capture.let { it is CaptureUi.Countdown || it is CaptureUi.Recording || it is CaptureUi.Analyzing }
+
     var capabilities by mutableStateOf<CapabilityReport?>(null)
         private set
 
     fun navigate(s: Screen) { backStack += s }
     fun back(): Boolean {
-        if (capture is CaptureUi.Recording) return true // do not leave mid-capture
+        if (isCapturing) return true // do not leave mid-capture
         if (backStack.size <= 1) return false
         backStack.removeAt(backStack.lastIndex)
         capture = CaptureUi.Idle
@@ -116,32 +131,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var testCapture by mutableStateOf<TestCapture?>(null)
         private set
 
-    /** Same flow as a real attempt (1.5 s quiet, clap, decay), analysed but not saved to a session. */
+    /** Same flow as a real attempt (countdown, 1.5 s quiet, clap, decay), analysed but not saved to a session. */
     fun runTestCapture() {
-        if (capture is CaptureUi.Recording || capture is CaptureUi.Analyzing) return
-        val total = 5.0
-        capture = CaptureUi.Recording("QUIET", 0.0, total, AttemptKind.IMPULSE)
-        viewModelScope.launch {
-            val outcome = recorder.record(total) { t ->
-                val phase = if (t < PRE_ROLL_SECONDS) "QUIET" else if (t < PRE_ROLL_SECONDS + 1.5) "CLAP" else "LISTEN"
-                viewModelScope.launch(Dispatchers.Main) {
-                    if (capture is CaptureUi.Recording) capture = CaptureUi.Recording(phase, t, total, AttemptKind.IMPULSE)
-                }
+        startCapture(AttemptKind.IMPULSE) { outcome ->
+            val record = withContext(Dispatchers.Default) {
+                val discontinuities = outcome.events.filter { it.type in DISCONTINUITY_TYPES }.map { it.atFrame.toInt() }
+                val result = DecayAnalyzer(analysisConfig).analyze(PcmSignal(outcome.samples, outcome.sampleRate, discontinuities))
+                Records.of(result, System.currentTimeMillis())
             }
-            capture = when (outcome) {
-                is MeasurementRecorder.Outcome.Cancelled -> CaptureUi.Problem("Capture ${outcome.reason.lowercase()}.")
-                is MeasurementRecorder.Outcome.Failed -> CaptureUi.Problem(outcome.message)
-                is MeasurementRecorder.Outcome.Completed -> {
-                    capture = CaptureUi.Analyzing
-                    val record = withContext(Dispatchers.Default) {
-                        val discontinuities = outcome.events.filter { it.type in DISCONTINUITY_TYPES }.map { it.atFrame.toInt() }
-                        val result = DecayAnalyzer(analysisConfig).analyze(PcmSignal(outcome.samples, outcome.sampleRate, discontinuities))
-                        Records.of(result, System.currentTimeMillis())
-                    }
-                    testCapture = TestCapture(outcome.samples, outcome.sampleRate, outcome.configuration, outcome.events, record)
-                    CaptureUi.Idle
-                }
-            }
+            testCapture = TestCapture(outcome.samples, outcome.sampleRate, outcome.configuration, outcome.events, record)
+            CaptureUi.Idle
         }
     }
 
@@ -162,16 +161,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------------------------------------------------------- capture
 
+    private var captureJob: Job? = null
+
     /**
-     * One attempt. Impulse: 1.5 s quiet pre-roll, then "clap once", recording continues to 5 s so the
-     * decay and a noise-only tail are captured. Background: 5 s of quiet.
+     * One attempt: a 3 s "get ready" countdown (the microphone is closed), then 5 s of recording.
+     * Impulse: 1.5 s quiet pre-roll, then "clap once", recording continues so the decay and a
+     * noise-only tail are captured. Background: 5 s of quiet.
      */
     fun record(sessionId: String, positionId: String, kind: AttemptKind) {
-        if (capture is CaptureUi.Recording || capture is CaptureUi.Analyzing) return
-        val total = 5.0
-        capture = CaptureUi.Recording(if (kind == AttemptKind.BACKGROUND) "BACKGROUND" else "QUIET", 0.0, total, kind)
-        viewModelScope.launch {
-            val outcome = recorder.record(total) { t ->
+        startCapture(kind) { outcome ->
+            val saved = withContext(Dispatchers.IO) {
+                val bytes = Wav.toBytes(outcome.samples, outcome.sampleRate, WavEncoding.FLOAT_32)
+                store.addAttempt(sessionId, positionId, bytes.inputStream(), kind, outcome.configuration, outcome.events)
+            }
+            if (kind == AttemptKind.IMPULSE) {
+                withContext(Dispatchers.Default) { analysis.analyze(saved, analysisConfig) }
+            }
+            changed()
+            CaptureUi.Done(saved.id)
+        }
+    }
+
+    private fun startCapture(kind: AttemptKind, onCompleted: suspend (MeasurementRecorder.Outcome.Completed) -> CaptureUi) {
+        if (isCapturing) return
+        captureJob = viewModelScope.launch {
+            for (s in COUNTDOWN_SECONDS downTo 1) {
+                capture = CaptureUi.Countdown(s, kind)
+                delay(1000)
+            }
+            val total = RECORD_SECONDS
+            capture = CaptureUi.Recording(if (kind == AttemptKind.BACKGROUND) "BACKGROUND" else "QUIET", 0.0, total, kind)
+            val outcome = recorder.record(total) { t, peakDb ->
                 val phase = when {
                     kind == AttemptKind.BACKGROUND -> "BACKGROUND"
                     t < PRE_ROLL_SECONDS -> "QUIET"
@@ -180,23 +200,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 // Hop to the main thread; the capture thread must not touch Compose state.
                 viewModelScope.launch(Dispatchers.Main) {
-                    if (capture is CaptureUi.Recording) capture = CaptureUi.Recording(phase, t, total, kind)
+                    val cur = capture
+                    if (cur is CaptureUi.Recording) {
+                        val hold = if (phase == "QUIET") cur.clapPeakDbfs else max(cur.clapPeakDbfs, peakDb)
+                        capture = CaptureUi.Recording(phase, t, total, kind, peakDb, hold)
+                    }
                 }
             }
-            when (outcome) {
-                is MeasurementRecorder.Outcome.Cancelled -> capture = CaptureUi.Problem("Capture ${outcome.reason.lowercase()}; nothing was saved.")
-                is MeasurementRecorder.Outcome.Failed -> capture = CaptureUi.Problem(outcome.message)
+            capture = when (outcome) {
+                is MeasurementRecorder.Outcome.Cancelled -> CaptureUi.Problem("Capture ${outcome.reason.lowercase()}; nothing was saved.")
+                is MeasurementRecorder.Outcome.Failed -> CaptureUi.Problem(outcome.message)
                 is MeasurementRecorder.Outcome.Completed -> {
                     capture = CaptureUi.Analyzing
-                    val saved = withContext(Dispatchers.IO) {
-                        val bytes = Wav.toBytes(outcome.samples, outcome.sampleRate, WavEncoding.FLOAT_32)
-                        store.addAttempt(sessionId, positionId, bytes.inputStream(), kind, outcome.configuration, outcome.events)
-                    }
-                    if (kind == AttemptKind.IMPULSE) {
-                        withContext(Dispatchers.Default) { analysis.analyze(saved, analysisConfig) }
-                    }
-                    changed()
-                    capture = CaptureUi.Done(saved.id)
+                    onCompleted(outcome)
                 }
             }
         }
@@ -204,11 +220,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Called when the app leaves the foreground: never keep the microphone open in the background. */
     fun interruptCapture() {
-        if (capture is CaptureUi.Recording) recorder.cancel("INTERRUPTED")
+        when (capture) {
+            is CaptureUi.Countdown -> { captureJob?.cancel(); capture = CaptureUi.Idle }
+            is CaptureUi.Recording -> recorder.cancel("INTERRUPTED")
+            else -> Unit
+        }
     }
 
     fun cancelCapture() {
-        if (capture is CaptureUi.Recording) recorder.cancel("CANCELLED")
+        when (capture) {
+            is CaptureUi.Countdown -> { captureJob?.cancel(); capture = CaptureUi.Idle }
+            is CaptureUi.Recording -> recorder.cancel("CANCELLED")
+            else -> Unit
+        }
     }
 
     fun dismissCapture() { capture = CaptureUi.Idle }
@@ -255,6 +279,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         const val PRE_ROLL_SECONDS = 1.5
+        const val COUNTDOWN_SECONDS = 3
+        const val RECORD_SECONDS = 5.0
         val DISCONTINUITY_TYPES: Set<String> = AnalysisService.DISCONTINUITY_EVENTS
         fun describeEvent(e: CaptureEvent) = "${e.type} at frame ${e.atFrame}${if (e.detail.isNotEmpty()) ": ${e.detail}" else ""}"
     }

@@ -81,6 +81,7 @@ object Records {
         put("secondImpulseRiseDb", c.secondImpulseRiseDb)
         put("secondImpulseLookbackSeconds", c.secondImpulseLookbackSeconds)
         put("secondImpulseAboveNoiseDb", c.secondImpulseAboveNoiseDb)
+        put("lateEventGuardSeconds", c.lateEventGuardSeconds)
         put("preOnsetImpulseWithinDb", c.preOnsetImpulseWithinDb)
         put("backgroundTransientDb", c.backgroundTransientDb)
         put("minMarginT20Db", c.minMarginT20Db)

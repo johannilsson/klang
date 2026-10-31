@@ -53,7 +53,7 @@ fun KlangApp(vm: AppViewModel) {
 
     // Keep the screen on while recording so the system does not interrupt the capture.
     val view = LocalView.current
-    val recording = vm.capture is CaptureUi.Recording
+    val recording = vm.capture.let { it is CaptureUi.Recording || it is CaptureUi.Countdown }
     DisposableEffect(recording) {
         view.keepScreenOn = recording
         onDispose { view.keepScreenOn = false }

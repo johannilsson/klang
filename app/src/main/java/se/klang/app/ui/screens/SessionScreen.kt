@@ -42,7 +42,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
     val session = vm.session(sessionId) ?: return
     val room = vm.room(session.roomId) ?: return
     val attempts = vm.attempts(sessionId)
-    val busy = vm.capture is CaptureUi.Recording || vm.capture is CaptureUi.Analyzing
+    val busy = vm.isCapturing
     var pending by remember { mutableStateOf<Pair<String, AttemptKind>?>(null) }
     val start = rememberWithMicPermission(onDenied = { vm.permissionDenied() }) {
         pending?.let { (pos, kind) -> vm.record(sessionId, pos, kind) }

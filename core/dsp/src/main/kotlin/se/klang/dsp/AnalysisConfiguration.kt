@@ -64,6 +64,8 @@ data class AnalysisConfiguration(
     val secondImpulseLookbackSeconds: Double = 0.05,
     /** ...if it is also at least this far above the background level. */
     val secondImpulseAboveNoiseDb: Double = 15.0,
+    /** A second event only invalidates a band if it starts before the band's analysed decay ends plus this guard. */
+    val lateEventGuardSeconds: Double = 0.05,
     /** A pre-onset window within this distance of the main peak is a separate impulse. */
     val preOnsetImpulseWithinDb: Double = 20.0,
     /** A pre-onset window this far above the median background window is a background transient. */
@@ -104,6 +106,6 @@ data class AnalysisConfiguration(
 ) {
     companion object {
         const val ALGORITHM_ID = "klang.schroeder-truncated"
-        const val VERSION = "0.1.1"
+        const val VERSION = "0.2.0"
     }
 }

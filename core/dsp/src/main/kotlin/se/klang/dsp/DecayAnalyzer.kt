@@ -93,12 +93,24 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
             return earlyExit(signal, reasons, peakDbfs, onsetSeconds, backgroundRmsDbfs)
         }
 
-        checkContamination(x, fs, onset, peakIdx, bgStart, bgEnd, reasons)
+        val eventSeconds = checkContamination(x, fs, onset, peakIdx, bgStart, bgEnd, reasons)
 
-        val attemptState = reasons.worstState()
+        val bandStateBase = reasons.worstState()
         val bands = config.bandsHz.map { fc ->
-            analyzeBand(signal, fc, onset, bgStart, bgEnd, reasons, attemptState)
+            analyzeBand(signal, fc, onset, bgStart, bgEnd, reasons, bandStateBase, eventSeconds)
         }
+        if (eventSeconds != null) {
+            val hit = { b: BandResult -> b.reasons.any { it.code == ReasonCode.ADDITIONAL_IMPULSE && it.severity == QualityState.INVALID } }
+            val allLost = bands.any(hit) && bands.all { hit(it) || it.state == QualityState.INVALID }
+            reasons += QualityReason(
+                ReasonCode.ADDITIONAL_IMPULSE,
+                if (allLost) QualityState.INVALID else QualityState.VALID,
+                if (allLost) "Second sound event ${fmt(eventSeconds)} s after the clap, inside the decay of every band; let the decay finish and keep the room quiet"
+                else "Second sound event ${fmt(eventSeconds)} s after the clap. It is outside the decay analysis of ${bands.count { !hit(it) && it.state != QualityState.INVALID }} band(s), which are unaffected; see each band",
+                value = eventSeconds,
+            )
+        }
+        val attemptState = reasons.worstState()
         return AttemptAnalysis(
             configuration = config,
             sampleRate = fs,
@@ -182,7 +194,7 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
     private fun checkContamination(
         x: FloatArray, fs: Int, onset: Int, peakIdx: Int, bgStart: Int, bgEnd: Int,
         reasons: MutableList<QualityReason>,
-    ) {
+    ): Double? {
         val w = max(1, (config.contaminationWindowSeconds * fs).roundToInt())
         fun windowDb(start: Int): Double {
             var acc = 0.0
@@ -227,22 +239,18 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
             for (j in max(0, k - lookback) until k) recentMax = max(recentMax, levels[j])
             val l = levels[k]
             if (l >= recentMax + config.secondImpulseRiseDb && l >= bgMedian + config.secondImpulseAboveNoiseDb) {
-                val at = max(0, first - lookback * w) + k * w
-                reasons += QualityReason(
-                    ReasonCode.ADDITIONAL_IMPULSE, QualityState.INVALID,
-                    "Second sound event ${fmt((at - onset).toDouble() / fs)} s after the clap; let the decay finish and keep the room quiet",
-                    value = (at - onset).toDouble() / fs,
-                )
-                return
+                // Returned, not judged here: whether it matters depends on where each band's decay analysis ends.
+                return (max(0, first - lookback * w) + k * w - onset).toDouble() / fs
             }
         }
+        return null
     }
 
     // ------------------------------------------------------------------ bands
 
     private fun analyzeBand(
         signal: PcmSignal, fc: Int, onset: Int, bgStart: Int, bgEnd: Int,
-        attemptReasons: List<QualityReason>, attemptState: QualityState,
+        attemptReasons: List<QualityReason>, attemptState: QualityState, eventSeconds: Double? = null,
     ): BandResult {
         val fs = signal.sampleRate
         val extended = fc !in config.primaryBandsHz
@@ -342,12 +350,32 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
         tc = tc.coerceIn(wn.toDouble() / fs, maxTc)
         val nc = onset + max(1, (tc * fs).toInt())
 
+        // A second sound event matters only if it falls inside this band's analysed decay: the Schroeder
+        // integral is truncated at tc and the fits use nothing after it. Later events are reported
+        // (severity VALID = informational) and excluded from the tail check below.
+        if (eventSeconds != null) {
+            if (eventSeconds <= tc + config.lateEventGuardSeconds) {
+                reasons += QualityReason(
+                    ReasonCode.ADDITIONAL_IMPULSE, QualityState.INVALID,
+                    "Second sound event ${fmt(eventSeconds)} s after the clap, inside this band's decay (analysed to ${fmt(tc)} s)",
+                    value = eventSeconds, threshold = tc,
+                )
+            } else {
+                reasons += QualityReason(
+                    ReasonCode.ADDITIONAL_IMPULSE, QualityState.VALID,
+                    "Second sound event ${fmt(eventSeconds)} s after the clap, after this band's decay analysis ended at ${fmt(tc)} s: not used",
+                    value = eventSeconds, threshold = tc,
+                )
+            }
+        }
+        val tailLimit = if (eventSeconds != null) min(tailEnd, onset + ((eventSeconds - 0.02) * fs).toInt()) else tailEnd
+
         // Tail consistency: background after the decay should match the pre-onset background.
         val tailFrom = nc + (10.0 / -lateSlope * fs).toInt()
-        if (tailEnd - tailFrom >= (0.1 * fs).toInt()) {
+        if (tailLimit - tailFrom >= (0.1 * fs).toInt()) {
             var acc = 0.0
-            for (i in tailFrom until tailEnd) acc += p[i]
-            val tailDb = 10.0 * log10(max(acc / (tailEnd - tailFrom), 1e-30) / noisePow)
+            for (i in tailFrom until tailLimit) acc += p[i]
+            val tailDb = 10.0 * log10(max(acc / (tailLimit - tailFrom), 1e-30) / noisePow)
             if (tailDb > config.tailNoiseMismatchDb) {
                 reasons += QualityReason(
                     ReasonCode.TAIL_NOISE_MISMATCH, QualityState.QUESTIONABLE,

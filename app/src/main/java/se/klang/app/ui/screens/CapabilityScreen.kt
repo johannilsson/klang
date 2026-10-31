@@ -63,7 +63,7 @@ fun CapabilityScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
         item {
             SectionCard("Test capture") {
                 Text("Records 5 s: stay quiet, clap once when prompted, then stay still. Nothing is saved to a session.")
-                Button(enabled = vm.capture !is CaptureUi.Recording, onClick = startTest) { Text("Start test capture") }
+                Button(enabled = !vm.isCapturing, onClick = startTest) { Text("Start test capture") }
                 CapturePanel(vm)
             }
         }

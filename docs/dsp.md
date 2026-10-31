@@ -2,7 +2,7 @@
 
 Implementation: `core/dsp` (`se.klang.dsp.DecayAnalyzer`). Pure Kotlin/JVM, no Android or I/O
 dependencies, deterministic. Every threshold lives in `AnalysisConfiguration` (algorithm id
-`klang.schroeder-truncated`, version `0.1.1`); every stored result carries the full configuration
+`klang.schroeder-truncated`, version `0.2.0`); every stored result carries the full configuration
 that produced it. Changing a default is an algorithm change and must bump the version.
 
 The thresholds below are engineering starting points chosen for this prototype. They are not
@@ -47,11 +47,18 @@ positions of known timeline breaks (overrun, short read, route change, system si
   *and* within 20 dB of the peak window → **invalid** (`ADDITIONAL_IMPULSE`). A window ≥ 15 dB
   above the median but not that loud → **questionable** (`BACKGROUND_TRANSIENT`).
 * **Second event after onset**: from 30 ms after the onset, a window at least 6 dB above the
-  *maximum* of the preceding 50 ms, and at least 15 dB above the background median → **invalid**
-  (`ADDITIONAL_IMPULSE`). Comparing against the recent maximum rather than a running minimum keeps
-  beating between room modes from looking like a second event: beating dips and recovers inside its
-  own decaying envelope, while a new clap jumps above it. Starting at the onset (not the peak) also
-  catches a second clap that is louder than the first.
+  *maximum* of the preceding 50 ms, and at least 15 dB above the background median. Comparing against
+  the recent maximum rather than a running minimum keeps beating between room modes from looking
+  like a second event: beating dips and recovers inside its own decaying envelope, while a new clap
+  jumps above it. Starting at the onset (not the peak) also catches a second clap that is louder than
+  the first.
+  **Whether it matters is decided per band** (since 0.2.0): the Schroeder integral is truncated at
+  the band's truncation point `tc` and the fits use nothing after it, so an event that starts after
+  `tc` + 50 ms cannot change that band's T20. Such an event is reported as an informational note
+  (severity `VALID`), and the tail-consistency check stops before it. An event inside the analysed
+  decay marks that band **invalid** (`ADDITIONAL_IMPULSE`); if it hits every usable band the attempt
+  is invalid. Real captures showed people moving 2–2.5 s after a clap whose decay ended before 1 s;
+  before 0.2.0 that discarded the whole attempt.
 
 ## 4. Octave-band filtering
 

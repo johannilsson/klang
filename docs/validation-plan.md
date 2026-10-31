@@ -66,6 +66,19 @@ Agreement on one file does not establish equivalence.
   was 8–16 dB above the pre-clap background; 250 Hz fails the 35 dB margin. Time-reversed filtering
   differs by up to ~9 % at 500 Hz. This is one clap, not a measurement.
 
+**Ten claps at one position (kitchen table), reasons for failures** (algorithm 0.2.0 re-analysis;
+APK before the 3 s countdown and live level meter):
+
+* 6 of 9 claps in the first session peaked at −0.1…−0.3 dBFS (no headroom).
+* 4 had handling noise in the pre-roll (button tap, movement), 1 had ambient noise throughout
+  (−46 dBFS, something running), 2 had a small noise 2.4 s / 2.1 s after the clap, after the decay.
+* The late noise discarded whole attempts before 0.2.0; clap #6 is now valid.
+* 3 claps are valid in all of 500–4000 Hz (peaks −1.1 / −2.9 / −4.4 dBFS, background −66 to −73 dBFS):
+  T20 500 Hz 0.80 / 0.70 / 0.78 s, 1 kHz 0.76 / 0.71 / 0.74 s, 2 kHz 0.68 / 0.65 / 0.66 s,
+  4 kHz 0.59 / 0.57 / 0.61 s. Three claps are not a repeatability estimate.
+* Countermeasures added: 3 s "get ready" countdown with the microphone off, live level meter with
+  a −12…−2 dBFS target, "stay still until the phone buzzes", and the per-band late-event rule.
+
 Still to do:
 
 * Microphone check screen: record the claims (UNPROCESSED property, formats, effects, inputs).

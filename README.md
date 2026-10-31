@@ -69,8 +69,11 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
 3. **Sessions**. *Baseline*, then a *Repeat baseline* with the room unchanged, then *Treatment* with
    the intervention described. Each session stores its conditions (doors and windows, furnishings,
    occupancy, appliances, source position).
-4. **Per position**: record background, then claps. Each clap recording is 5 s: stay quiet → *Clap
-   once now* → stay still. Every attempt is saved and analysed straight away. Rejected attempts are
+4. **Per position**: record background, then claps. Each recording starts with a 3 s "get ready"
+   countdown with the microphone off (so the button tap is not recorded), then lasts 5 s: stay quiet
+   → *Clap once now* → stay still. A live level meter shows how loud the clap is (aim for −12 to
+   −2 dBFS: louder risks the microphone compressing the clap, quieter risks too little margin). The
+   phone buzzes when recording ends: stay still until then. Every attempt is saved and analysed straight away. Rejected attempts are
    kept, with their reasons and advice (never "clap harder"), and can be deleted.
 5. **Compare** shows matched positions band by band: every usable attempt, medians and IQRs,
    absolute and percentage change, valid/attempted counts, configuration warnings, and a verdict.

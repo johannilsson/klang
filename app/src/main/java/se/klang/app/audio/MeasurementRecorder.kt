@@ -29,6 +29,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
 
@@ -72,11 +74,12 @@ class MeasurementRecorder(private val context: Context) {
     fun cancel(reason: String) { cancelReason = reason }
 
     /**
-     * Records [durationSeconds] of audio. [onProgress] receives elapsed seconds (called from the
-     * capture thread at most ~20 times per second; must be cheap and thread-safe).
+     * Records [durationSeconds] of audio. [onProgress] receives elapsed seconds and the peak level
+     * (dBFS) since the previous call (called from the capture thread ~20 times per second; must be
+     * cheap and thread-safe).
      */
     @SuppressLint("MissingPermission") // checked explicitly below
-    suspend fun record(durationSeconds: Double, onProgress: (Double) -> Unit = {}): Outcome = withContext(captureThread) {
+    suspend fun record(durationSeconds: Double, onProgress: (elapsedSeconds: Double, peakDbfs: Double) -> Unit = { _, _ -> }): Outcome = withContext(captureThread) {
         cancelReason = null
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return@withContext Outcome.Failed("Microphone permission not granted")
@@ -142,6 +145,7 @@ class MeasurementRecorder(private val context: Context) {
                 val bufferFrames = record.bufferSizeInFrames.toLong()
                 var overrunReported = false
                 var lastProgress = 0L
+                var peakSince = 0f
                 var pos = 0
                 while (pos < total) {
                     cancelReason?.let { return@withContext Outcome.Cancelled(it) }
@@ -158,6 +162,7 @@ class MeasurementRecorder(private val context: Context) {
                         return@withContext Outcome.Failed("Capture failed (error $got)", events.toList())
                     }
                     if (got < n) events += CaptureEvent("SHORT_READ", pos.toLong(), "$got of $n frames")
+                    for (i in pos until pos + max(0, got)) { val a = abs(out[i]); if (a > peakSince) peakSince = a }
                     pos += got
                     framesRead.set(pos.toLong())
 
@@ -171,7 +176,11 @@ class MeasurementRecorder(private val context: Context) {
                             overrunReported = true
                         }
                     }
-                    if (pos - lastProgress >= rate / 20) { lastProgress = pos.toLong(); onProgress(pos.toDouble() / rate) }
+                    if (pos - lastProgress >= rate / 20) {
+                        lastProgress = pos.toLong()
+                        onProgress(pos.toDouble() / rate, if (peakSince > 0f) 20.0 * log10(peakSince.toDouble()) else -120.0)
+                        peakSince = 0f
+                    }
                 }
                 routedAtEnd = record.routedDevice
             } finally {

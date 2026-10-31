@@ -170,7 +170,8 @@ class DecayAnalyzerTest {
         }
         val r = analyzer.analyze(PcmSignal(mixed, a.sampleRate))
         assertTrue(r.reasons.any { it.code == ReasonCode.ADDITIONAL_IMPULSE }, r.describe())
-        assertEquals(QualityState.INVALID, r.state)
+        assertEquals(QualityState.INVALID, r.state, r.describe())
+        r.bands.forEach { assertNull(it.t20) }
     }
 
     @Test
@@ -182,6 +183,41 @@ class DecayAnalyzerTest {
             assertEquals(0.75, r.onsetSeconds!!, 0.005, r.describe())
             assertTrue(r.reasons.none { it.code == ReasonCode.ADDITIONAL_IMPULSE }, r.describe())
         }
+    }
+
+    private fun withBurst(sig: PcmSignal, atSeconds: Double, amplitude: Double): PcmSignal {
+        val s = sig.samples.copyOf()
+        val at = (atSeconds * sig.sampleRate).toInt()
+        for (i in 0 until 300) s[at + i] += (amplitude * Math.sin(i * 0.9) * Math.exp(-i / 100.0)).toFloat()
+        return PcmSignal(s, sig.sampleRate)
+    }
+
+    @Test
+    fun `a sound after the decay has ended does not invalidate the bands - it is reported and excluded`() {
+        // Real captures: the user moved at ~2.4 s after a clap whose decay ended before 1 s.
+        val base = SyntheticImpulse.generate(SyntheticImpulse.Spec(durationSeconds = 4.5, noiseRmsDbfs = -75.0))
+        val r = analyzer.analyze(withBurst(base, 0.75 + 2.4, 0.01))
+        val note = r.reasons.single { it.code == ReasonCode.ADDITIONAL_IMPULSE }
+        assertEquals(QualityState.VALID, note.severity, r.describe()) // informational
+        for (fc in listOf(500, 1000, 2000)) {
+            val b = r.band(fc)
+            assertEquals(QualityState.VALID, b.state, r.describe())
+            assertTrue(relErr(assertNotNull(b.t20).seconds, 0.5) < 0.06, "band $fc")
+            assertTrue(b.reasons.any { it.code == ReasonCode.ADDITIONAL_IMPULSE && it.severity == QualityState.VALID })
+        }
+        assertEquals(QualityState.VALID, r.state)
+    }
+
+    @Test
+    fun `the same sound inside the decay invalidates the bands it hits`() {
+        val base = SyntheticImpulse.generate(SyntheticImpulse.Spec(durationSeconds = 4.5, noiseRmsDbfs = -75.0))
+        val r = analyzer.analyze(withBurst(base, 0.75 + 0.45, 0.05))
+        for (fc in listOf(500, 1000, 2000)) {
+            assertEquals(QualityState.INVALID, r.band(fc).state, r.describe())
+            assertNull(r.band(fc).t20)
+            assertTrue(r.band(fc).reasons.any { it.code == ReasonCode.ADDITIONAL_IMPULSE && it.severity == QualityState.INVALID })
+        }
+        assertEquals(QualityState.INVALID, r.state, r.describe())
     }
 
     @Test
