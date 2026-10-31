@@ -95,7 +95,7 @@ class DecayAnalyzerTest {
     fun `gain invariance in the linear unclipped case`() {
         val base = SyntheticImpulse.generate(SyntheticImpulse.Spec(noiseRmsDbfs = -75.0))
         val a = analyzer.analyze(base)
-        for (gain in listOf(0.1, 0.5, 1.8)) {
+        for (gain in listOf(0.1, 0.5, 1.5)) { // stays below the -1 dBFS headroom warning
             val b = analyzer.analyze(base.scaled(gain))
             for (fc in bands) {
                 val ta = a.band(fc).t20?.seconds
@@ -261,6 +261,26 @@ class DecayAnalyzerTest {
         for (i in 60_000 until 60_400) s[i] = 0f
         val r2 = analyzer.analyze(PcmSignal(s, sig.sampleRate))
         assertTrue(r2.reasons.any { it.code == ReasonCode.DROPOUT }, r2.describe())
+    }
+
+    @Test
+    fun `leading zeros from microphone start-up are not a dropout`() {
+        // Seen on a real phone: the first 839 samples (17 ms) were exact zeros.
+        val sig = SyntheticImpulse.generate(SyntheticImpulse.Spec())
+        val s = sig.samples.copyOf()
+        for (i in 0 until 839) s[i] = 0f
+        val r = analyzer.analyze(PcmSignal(s, sig.sampleRate))
+        assertTrue(r.reasons.none { it.code == ReasonCode.DROPOUT }, r.describe())
+        assertEquals(QualityState.VALID, r.state, r.describe())
+    }
+
+    @Test
+    fun `a peak with almost no headroom is questionable`() {
+        val sig = SyntheticImpulse.generate(SyntheticImpulse.Spec(peakAmplitude = 0.95))
+        val r = analyzer.analyze(sig)
+        assertTrue(r.reasons.any { it.code == ReasonCode.NEAR_FULL_SCALE }, r.describe())
+        assertEquals(QualityState.QUESTIONABLE, r.state)
+        r.bands.forEach { assertTrue(it.state != QualityState.VALID) }
     }
 
     @Test

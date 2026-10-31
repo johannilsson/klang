@@ -44,6 +44,8 @@ data class AnalysisConfiguration(
     // ---- Capture integrity ----
     /** |x| at or above this is treated as at digital full scale. */
     val clipLevel: Double = 0.999,
+    /** A peak at or above this (default −1 dBFS) without clipping is questionable: no headroom left. */
+    val nearFullScaleLevel: Double = 0.891,
     /** This many consecutive full-scale samples invalidates the attempt; fewer is questionable. */
     val clipRunInvalid: Int = 2,
     /** Consecutive identical samples, above [flatTopMinLevel], indicating analog/limiter clipping. */
@@ -102,6 +104,6 @@ data class AnalysisConfiguration(
 ) {
     companion object {
         const val ALGORITHM_ID = "klang.schroeder-truncated"
-        const val VERSION = "0.1.0"
+        const val VERSION = "0.1.1"
     }
 }

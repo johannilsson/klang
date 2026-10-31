@@ -58,7 +58,7 @@ fun stateLabel(s: QualityState): String = when (s) {
 
 /** Practical advice per reason. Never suggests clapping harder. */
 fun advice(code: ReasonCode): String? = when (code) {
-    ReasonCode.CLIPPING, ReasonCode.FULL_SCALE_SAMPLE, ReasonCode.FLAT_TOP ->
+    ReasonCode.CLIPPING, ReasonCode.FULL_SCALE_SAMPLE, ReasonCode.NEAR_FULL_SCALE, ReasonCode.FLAT_TOP ->
         "Too loud for the microphone. Clap less hard or stand a little further from the phone."
     ReasonCode.INSUFFICIENT_SNR_MARGIN, ReasonCode.INSUFFICIENT_DECAY_RANGE ->
         "Background too loud for this band. Turn off fans, the dishwasher or the extractor; do not clap harder."

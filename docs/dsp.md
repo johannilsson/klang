@@ -2,7 +2,7 @@
 
 Implementation: `core/dsp` (`se.klang.dsp.DecayAnalyzer`). Pure Kotlin/JVM, no Android or I/O
 dependencies, deterministic. Every threshold lives in `AnalysisConfiguration` (algorithm id
-`klang.schroeder-truncated`, version `0.1.0`); every stored result carries the full configuration
+`klang.schroeder-truncated`, version `0.1.1`); every stored result carries the full configuration
 that produced it. Changing a default is an algorithm change and must bump the version.
 
 The thresholds below are engineering starting points chosen for this prototype. They are not
@@ -23,8 +23,9 @@ positions of known timeline breaks (overrun, short read, route change, system si
 |---|---|---|
 | Clipping | ≥ 2 consecutive samples with \|x\| ≥ 0.999 | attempt **invalid** (`CLIPPING`) |
 | Isolated full-scale samples | 1 sample run with \|x\| ≥ 0.999 | **questionable** (`FULL_SCALE_SAMPLE`) |
+| Near full scale | peak ≥ 0.891 (−1 dBFS) without clipping: no headroom, the microphone may be compressing the clap | **questionable** (`NEAR_FULL_SCALE`) |
 | Flat top | ≥ 4 consecutive identical samples with \|x\| ≥ 0.3 (analogue clipping or a limiter below full scale) | **invalid** (`FLAT_TOP`) |
-| Dropout | run of exact zeros ≥ 2 ms in a recording that is not entirely silent (lost buffers or a device noise gate) | **invalid** (`DROPOUT`) |
+| Dropout | run of exact zeros ≥ 2 ms *after the first non-zero sample* (lost buffers or a device noise gate). Leading zeros are the microphone starting up (17 ms on a Pixel 9 Pro) and are ignored | **invalid** (`DROPOUT`) |
 | Capture discontinuity | any discontinuity reported by the capture layer | **invalid** (`CAPTURE_DISCONTINUITY`) |
 
 ## 2. Impulse detection and segmentation

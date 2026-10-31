@@ -46,7 +46,27 @@ Agreement on one file does not establish equivalence.
 5. Check several files, several positions and all bands, including marginal ones. Report the
    differences per band; do not average them away.
 
-## 3. Device capability on the target phone ⏳
+## 3. Device capability on the target phone ⚠ (first findings)
+
+**Google Pixel 9 Pro, Android 17 (API 37), first test capture:**
+
+* `PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED` = false, so capture uses VOICE_RECOGNITION and every
+  result is flagged as a fallback. Whether that source applies hidden processing is **not** yet known.
+* 48 kHz mono PCM float opens; the built-in mic is routed; no capture events.
+* AGC is not offered. Noise suppression and echo cancellation are offered and were disabled.
+* `activeRecordingConfiguration` was unavailable while recording; the capture notes say so.
+* The first 839 samples (17 ms) were exact zeros: microphone start-up. The dropout check wrongly
+  rejected this until algorithm 0.1.1.
+* The first clap peaked at 0.995 (−0.05 dBFS): almost no headroom. 0.1.1 now warns
+  (`NEAR_FULL_SCALE`); clap from further away or less hard.
+* The attempt was invalid anyway: a handling/tap transient at 1.1 s (−19 dBFS peak), 1.4 s before the clap.
+* Same file analysed on the phone and on the desktop CLI: identical margins (13 / 33 / 44 / 53 / 53 dB).
+* Diagnostic only: with the tap trimmed off, T20 reads ≈ 0.75 / 0.70 / 0.64 / 0.61 s at
+  500 / 1000 / 2000 / 4000 Hz (forward filter), all *questionable* because the level after the decay
+  was 8–16 dB above the pre-clap background; 250 Hz fails the 35 dB margin. Time-reversed filtering
+  differs by up to ~9 % at 500 Hz. This is one clap, not a measurement.
+
+Still to do:
 
 * Microphone check screen: record the claims (UNPROCESSED property, formats, effects, inputs).
 * Test capture: confirm the actual source, sample rate and encoding, the routed device, effect

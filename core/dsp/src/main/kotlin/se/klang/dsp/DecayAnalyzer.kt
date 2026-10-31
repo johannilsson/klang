@@ -129,7 +129,8 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
             val a = abs(v.toDouble())
             if (a >= config.clipLevel) { clipped++; clipRun++; maxClipRun = max(maxClipRun, clipRun) } else clipRun = 0
             if (i > 0 && v == x[i - 1] && a >= config.flatTopMinLevel) { flatRun++; maxFlatRun = max(maxFlatRun, flatRun) } else flatRun = 1
-            if (v == 0f) { zeroRun++; maxZeroRun = max(maxZeroRun, zeroRun) } else { zeroRun = 0; nonZero = true }
+            // Leading zeros are the microphone starting up (seen on a real phone: 17 ms), not a dropout.
+            if (v == 0f) { if (nonZero) { zeroRun++; maxZeroRun = max(maxZeroRun, zeroRun) } } else { zeroRun = 0; nonZero = true }
         }
         if (maxClipRun >= config.clipRunInvalid) {
             reasons += QualityReason(
@@ -142,6 +143,14 @@ class DecayAnalyzer(val config: AnalysisConfiguration = AnalysisConfiguration())
                 ReasonCode.FULL_SCALE_SAMPLE, QualityState.QUESTIONABLE,
                 "$clipped isolated sample(s) at digital full scale; clipping cannot be ruled out",
                 value = clipped.toDouble(),
+            )
+        }
+        val peakAbs = x.maxOfOrNull { abs(it.toDouble()) } ?: 0.0
+        if (maxClipRun < config.clipRunInvalid && clipped == 0 && peakAbs >= config.nearFullScaleLevel) {
+            reasons += QualityReason(
+                ReasonCode.NEAR_FULL_SCALE, QualityState.QUESTIONABLE,
+                "Peak is ${fmt(Levels.peakDbfs(x))} dBFS, with almost no headroom: the microphone may already be compressing or clipping the clap",
+                value = Levels.peakDbfs(x), threshold = -1.0,
             )
         }
         if (maxFlatRun >= config.flatTopRun) {

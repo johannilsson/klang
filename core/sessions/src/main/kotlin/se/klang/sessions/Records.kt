@@ -71,6 +71,7 @@ object Records {
         put("onsetSearchSeconds", c.onsetSearchSeconds)
         put("onsetAboveBackgroundDb", c.onsetAboveBackgroundDb)
         put("clipLevel", c.clipLevel)
+        put("nearFullScaleLevel", c.nearFullScaleLevel)
         put("clipRunInvalid", c.clipRunInvalid)
         put("flatTopRun", c.flatTopRun)
         put("flatTopMinLevel", c.flatTopMinLevel)
