@@ -48,6 +48,8 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
         pending?.let { (pos, kind) -> vm.record(sessionId, pos, kind) }
     }
 
+    val practice = rememberWithMicPermission(onDenied = { vm.permissionDenied() }) { vm.startPractice() }
+
     LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         item {
             SectionCard(kindLabel(session.kind)) {
@@ -60,6 +62,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                 if (stale > 0) TextButton(onClick = { vm.reanalyze(sessionId) }) { Text("Analyse $stale recording(s) with algorithm ${AnalysisConfiguration.VERSION}") }
             }
             CapturePanel(vm) { id -> attempts.firstOrNull { it.id == id }?.let { LastAttemptSummary(it) } }
+            HowToClapCard(onPractice = if (busy) null else practice)
             if (room.positions.isEmpty()) Text("Add measurement positions to the room first.", modifier = Modifier.padding(8.dp))
         }
         room.positions.forEach { p ->

@@ -73,7 +73,10 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    countdown with the microphone off (so the button tap is not recorded), then lasts 5 s: stay quiet
    → *Clap once now* → stay still. A live level meter shows how loud the clap is (aim for −12 to
    −2 dBFS: louder risks the microphone compressing the clap, quieter risks too little margin). The
-   phone buzzes when recording ends: stay still until then. Every attempt is saved and analysed straight away. Rejected attempts are
+   phone buzzes when recording ends: stay still until then. Each session screen has a "How to clap"
+   card (spot, strength, distance) and a **Practice clap level** mode that listens for 30 s, reports
+   each clap's peak with plain feedback (too loud / good / quiet) and saves nothing, to find your
+   distance before recording. The suggested 1.5–2 m start distance is not validated: use the meter. Every attempt is saved and analysed straight away. Rejected attempts are
    kept, with their reasons and advice (never "clap harder"), and can be deleted.
 5. **Compare** shows matched positions band by band: every usable attempt, medians and IQRs,
    absolute and percentage change, valid/attempted counts, configuration warnings, and a verdict.

@@ -37,10 +37,10 @@ import se.klang.sessions.SessionKind
 val PROTOCOL = listOf(
     "Define three positions around the dining area at about seated ear height.",
     "Support the phone (stand or stack of books). Keep its position, orientation, case and microphone the same every time.",
-    "Mark a separate, fixed source position for the clap. Keep your own position and clap direction the same too.",
+    "Mark a separate, fixed clap spot (start about 1.5–2 m from the phone, then use Practice clap level in a session to adjust). Keep your own position, clap direction and distance the same, and note the distance.",
     "Keep doors, windows, furnishings and number of people the same. Turn off the dishwasher and extractor fan where practical.",
     "Record a few seconds of background at each position.",
-    "Record five separate claps per position. Let each decay finish. Retry when told, at your usual clap strength — never progressively louder.",
+    "Record five separate claps per position: one crisp clap each, about as firm as applause, not your hardest (aim for the green range on the level meter). Let each decay finish. Retry when told, never progressively louder.",
     "Repeat the whole session without changing the room, to see how much results vary on their own.",
     "Then add one change (e.g. one panel) and repeat the same protocol.",
 )

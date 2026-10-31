@@ -22,15 +22,8 @@ import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
 import se.klang.app.CaptureUi
 import se.klang.app.ui.fmt
-import se.klang.app.ui.theme.InvalidColor
-import se.klang.app.ui.theme.QuestionableColor
-import se.klang.app.ui.theme.ValidColor
 import se.klang.sessions.AttemptKind
 import kotlin.math.ceil
-
-/** Clap peak guidance in dBFS (relative to digital full scale). From real captures on a Pixel 9 Pro. */
-private const val TOO_LOUD_DBFS = -2.0
-private const val TOO_QUIET_DBFS = -12.0
 
 /** Live prompts during a capture and its immediate outcome. */
 @Composable
@@ -62,7 +55,7 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val (headline, detail) = when (c.phase) {
                     "QUIET" -> "Stay quiet…" to "Recording the background first. Keep still."
-                    "CLAP" -> "Clap once now" to "One clap at the marked source position. Not too hard: watch the level below."
+                    "CLAP" -> "Clap once now" to "One crisp clap at your marked spot, about as firm as applause. Not your hardest: watch the level below."
                     "LISTEN" -> "Listening to the decay…" to "Stay still and quiet until recording ends."
                     else -> "Recording background…" to "Keep the room quiet and still."
                 }
@@ -73,6 +66,44 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
                 LevelMeter(c)
                 LinearProgressIndicator(progress = { (c.elapsed / c.total).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                 OutlinedButton(onClick = { vm.cancelCapture() }) { Text("Cancel") }
+            }
+        }
+        is CaptureUi.Practice -> Card(
+            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (c.finished) "Practice finished" else "Practice clap level",
+                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
+                )
+                if (!c.finished) {
+                    Text(
+                        "Stand at your clap spot and clap once every few seconds. Adjust distance or strength until the last clap " +
+                            "reads Good level. Nothing is saved.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    LinearProgressIndicator(
+                        progress = { ((c.levelDbfs + 60.0) / 60.0).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.tertiary,
+                    )
+                    Text("Level now: ${fmt(c.levelDbfs, 0)} dBFS · ${fmt((c.total - c.elapsed).coerceAtLeast(0.0), 0)} s left", style = MaterialTheme.typography.bodySmall)
+                }
+                if (c.claps > 0) {
+                    ClapFeedbackText("Last clap:", c.lastClapDbfs)
+                    Text("${c.claps} clap(s) detected. Aim for ${fmt(TOO_QUIET_DBFS, 0)} to ${fmt(TOO_LOUD_DBFS, 0)} dBFS.", style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text("No clap detected yet.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (c.finished) {
+                    Text(
+                        "Note the distance in the position's placement notes and keep it the same in every session.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(onClick = { vm.dismissCapture() }) { Text("Done") }
+                } else {
+                    OutlinedButton(onClick = { vm.cancelCapture() }) { Text("Stop") }
+                }
             }
         }
         CaptureUi.Analyzing -> Text("Saving and analysing…", modifier = Modifier.padding(vertical = 8.dp))
@@ -103,17 +134,7 @@ private fun LevelMeter(c: CaptureUi.Recording) {
     )
     Text("Level now: ${fmt(c.levelDbfs, 0)} dBFS (relative to digital full scale)", style = MaterialTheme.typography.bodySmall)
     if (c.kind == AttemptKind.IMPULSE && c.clapPeakDbfs > -100.0) {
-        val (color, advice) = when {
-            c.clapPeakDbfs >= TOO_LOUD_DBFS -> InvalidColor to "Too loud: next time clap softer or stand further from the phone."
-            c.clapPeakDbfs < TOO_QUIET_DBFS -> QuestionableColor to "Quiet: the clap may be too weak for the higher and lower bands."
-            else -> ValidColor to "Good level."
-        }
-        Text(
-            "Loudest so far: ${fmt(c.clapPeakDbfs, 1)} dBFS. $advice",
-            color = color,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
+        ClapFeedbackText("Loudest so far:", c.clapPeakDbfs)
         Text("Aim for ${fmt(TOO_QUIET_DBFS, 0)} to ${fmt(TOO_LOUD_DBFS, 0)} dBFS.", style = MaterialTheme.typography.bodySmall)
     }
 }

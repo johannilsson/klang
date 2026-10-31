@@ -19,6 +19,7 @@ import se.klang.app.audio.AudioCapabilities
 import se.klang.app.audio.CapabilityReport
 import se.klang.app.audio.MeasurementRecorder
 import se.klang.dsp.AnalysisConfiguration
+import se.klang.dsp.ClapPeakTracker
 import se.klang.dsp.DecayAnalyzer
 import se.klang.dsp.PcmSignal
 import se.klang.dsp.Wav
@@ -64,6 +65,11 @@ sealed interface CaptureUi {
         val phase: String, val elapsed: Double, val total: Double, val kind: AttemptKind,
         val levelDbfs: Double = -120.0, val clapPeakDbfs: Double = -120.0,
     ) : CaptureUi
+    /** Level practice: live metering only, nothing is saved or analysed. */
+    data class Practice(
+        val total: Double, val elapsed: Double, val levelDbfs: Double, val lastClapDbfs: Double, val claps: Int,
+        val finished: Boolean = false,
+    ) : CaptureUi
     data object Analyzing : CaptureUi
     data class Done(val attemptId: String) : CaptureUi
     data class Problem(val message: String) : CaptureUi
@@ -86,7 +92,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     val isCapturing: Boolean
-        get() = capture.let { it is CaptureUi.Countdown || it is CaptureUi.Recording || it is CaptureUi.Analyzing }
+        get() = capture.let {
+            it is CaptureUi.Countdown || it is CaptureUi.Recording || it is CaptureUi.Analyzing ||
+                (it is CaptureUi.Practice && !it.finished)
+        }
 
     var capabilities by mutableStateOf<CapabilityReport?>(null)
         private set
@@ -162,6 +171,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------- capture
 
     private var captureJob: Job? = null
+    private var clapTracker = ClapPeakTracker()
+
+    /**
+     * Practice clap level: opens the microphone for [PRACTICE_SECONDS] and reports each clap's peak
+     * (dBFS) with plain-language feedback, so the user can find a comfortable distance and strength
+     * before recording. Nothing is saved or analysed.
+     */
+    fun startPractice() {
+        if (isCapturing) return
+        clapTracker = ClapPeakTracker()
+        captureJob = viewModelScope.launch {
+            capture = CaptureUi.Practice(PRACTICE_SECONDS, 0.0, -120.0, -120.0, 0)
+            val outcome = recorder.record(PRACTICE_SECONDS) { t, peakDb ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    val cur = capture as? CaptureUi.Practice ?: return@launch
+                    var last = cur.lastClapDbfs
+                    var claps = cur.claps
+                    clapTracker.update(peakDb)?.let { last = it; claps++ }
+                    capture = cur.copy(elapsed = t, levelDbfs = peakDb, lastClapDbfs = last, claps = claps)
+                }
+            }
+            val cur = capture
+            capture = when {
+                outcome is MeasurementRecorder.Outcome.Failed -> CaptureUi.Problem(outcome.message)
+                cur is CaptureUi.Practice && cur.claps > 0 -> cur.copy(finished = true)
+                else -> CaptureUi.Idle
+            }
+        }
+    }
 
     /**
      * One attempt: a 3 s "get ready" countdown (the microphone is closed), then 5 s of recording.
@@ -223,6 +261,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when (capture) {
             is CaptureUi.Countdown -> { captureJob?.cancel(); capture = CaptureUi.Idle }
             is CaptureUi.Recording -> recorder.cancel("INTERRUPTED")
+            is CaptureUi.Practice -> recorder.cancel("INTERRUPTED")
             else -> Unit
         }
     }
@@ -231,6 +270,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         when (capture) {
             is CaptureUi.Countdown -> { captureJob?.cancel(); capture = CaptureUi.Idle }
             is CaptureUi.Recording -> recorder.cancel("CANCELLED")
+            is CaptureUi.Practice -> recorder.cancel("CANCELLED")
             else -> Unit
         }
     }
@@ -281,6 +321,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val PRE_ROLL_SECONDS = 1.5
         const val COUNTDOWN_SECONDS = 3
         const val RECORD_SECONDS = 5.0
+        const val PRACTICE_SECONDS = 30.0
         val DISCONTINUITY_TYPES: Set<String> = AnalysisService.DISCONTINUITY_EVENTS
         fun describeEvent(e: CaptureEvent) = "${e.type} at frame ${e.atFrame}${if (e.detail.isNotEmpty()) ": ${e.detail}" else ""}"
     }
