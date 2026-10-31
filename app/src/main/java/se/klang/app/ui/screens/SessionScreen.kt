@@ -167,12 +167,12 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                 // Recordings sit outside the padded column so each row gets the standard
                 // Material list-item insets (16 dp sides) and dividers line up with the text.
                 if (impulses.isNotEmpty() || backgrounds.isNotEmpty()) {
-                    HorizontalDivider()
+                    // No divider above the first item: Material lists divide between items only.
                     Text(
                         "Recordings · T20 in seconds per octave band",
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
                     )
                     impulses.forEachIndexed { i, a ->
                         if (i > 0) RecordingDivider()
