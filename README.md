@@ -41,6 +41,8 @@ core/               Separate Gradle build, pure Kotlin/JVM — no Android SDK ne
   sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export
   cli/              klang-analyse: analyse WAV files on a desktop
 docs/               DSP method, export schema, validation plan, generated synthetic results
+scripts/            analyse_export.py: summarise an export ZIP and re-analyse its recordings
+CLAUDE.md           notes for Claude: build/test/run steps, sandbox gotchas, rules that must not be broken
 ```
 
 ## Build
