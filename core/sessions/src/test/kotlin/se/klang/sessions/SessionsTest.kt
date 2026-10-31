@@ -49,6 +49,22 @@ class SessionsTest {
     }
 
     @Test
+    fun `clap spot is stored on the position and older room files still load`() {
+        val store = SessionStore(Files.createTempDirectory("klang").toFile())
+        val room = store.createRoom("Kitchen")
+        store.addPosition(room.id, "Seat A", "Ear height", clapSpot = "1.8 m, toward the kitchen")
+        val p = SessionStore(store.root).room(room.id)!!.positions.single()
+        assertEquals("Ear height", p.placementNotes)
+        assertEquals("1.8 m, toward the kitchen", p.clapSpot)
+
+        // A room written before clapSpot existed decodes with an empty clap spot.
+        val file = java.io.File(store.root, "rooms/${room.id}.json")
+        file.writeText(file.readText().replace(Regex(",?\\s*\"clapSpot\":\\s*\"[^\"]*\""), ""))
+        assertTrue("clapSpot" !in file.readText())
+        assertEquals("", SessionStore(store.root).room(room.id)!!.positions.single().clapSpot)
+    }
+
+    @Test
     fun `persisted sessions survive a new store instance`() {
         val f = fixture()
         val (s, _) = record(f, SessionKind.BASELINE, 0.5, 100, attempts = 2)

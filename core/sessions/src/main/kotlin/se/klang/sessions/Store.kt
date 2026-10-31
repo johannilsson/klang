@@ -33,9 +33,9 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     fun rooms(): List<Room> = File(root, "rooms").listFiles { f -> f.extension == "json" }.orEmpty()
         .map { json.decodeFromString(Room.serializer(), it.readText()) }.sortedBy { it.createdAtEpochMs }
 
-    fun addPosition(roomId: String, name: String, placementNotes: String = ""): MeasurementPosition {
+    fun addPosition(roomId: String, name: String, placementNotes: String = "", clapSpot: String = ""): MeasurementPosition {
         val room = requireNotNull(room(roomId)) { "No room $roomId" }
-        val p = MeasurementPosition(newId(), name, placementNotes)
+        val p = MeasurementPosition(newId(), name, placementNotes, clapSpot)
         saveRoom(room.copy(positions = room.positions + p))
         return p
     }

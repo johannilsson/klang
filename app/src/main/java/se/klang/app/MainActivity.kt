@@ -9,6 +9,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -23,6 +24,8 @@ import se.klang.app.ui.screens.CompareScreen
 import se.klang.app.ui.screens.HomeScreen
 import se.klang.app.ui.screens.RoomScreen
 import se.klang.app.ui.screens.SessionScreen
+import se.klang.app.ui.screens.SheetHost
+import se.klang.app.ui.screens.TopBarMenu
 import se.klang.app.ui.theme.KlangTheme
 
 class MainActivity : ComponentActivity() {
@@ -67,8 +70,10 @@ fun KlangApp(vm: AppViewModel) {
                 navigationIcon = {
                     if (vm.backStack.size > 1) TextButton(onClick = { vm.back() }) { Text("Back") }
                 },
+                actions = { TopBarMenu(vm, screen) },
             )
         },
+        floatingActionButton = { MainAction(vm, screen) },
     ) { padding ->
         val m = Modifier.padding(padding)
         when (screen) {
@@ -80,6 +85,22 @@ fun KlangApp(vm: AppViewModel) {
             is Screen.Compare -> CompareScreen(vm, screen.roomId, m)
         }
     }
+    SheetHost(vm)
+}
+
+/** The one primary action per setup screen. Rooms need a position before a session makes sense. */
+@Composable
+private fun MainAction(vm: AppViewModel, screen: Screen) {
+    @Suppress("UNUSED_VARIABLE") val rev = vm.revision
+    val (label, sheet) = when (screen) {
+        Screen.Home -> "+ New room" to Sheet.NewRoom
+        is Screen.RoomDetail -> {
+            val room = vm.room(screen.roomId) ?: return
+            if (room.positions.isEmpty()) "+ Add position" to Sheet.AddPosition(room.id) else "+ New session" to Sheet.NewSession(room.id)
+        }
+        else -> return
+    }
+    ExtendedFloatingActionButton(onClick = { vm.sheet = sheet }) { Text(label) }
 }
 
 private fun titleFor(vm: AppViewModel, s: Screen): String = when (s) {
