@@ -17,16 +17,15 @@ shows the reason instead of a number.
 | DSP module (`core/dsp`) | Implemented; 31 unit tests on synthetic fixtures (see [validation-synthetic.md](docs/validation-synthetic.md)) |
 | Sessions, persistence, comparison, export (`core/sessions`) | Implemented; 8 unit tests |
 | Desktop analyser for imported WAVs (`core/cli`) | Implemented, for comparison with REW |
-| Android capture layer and capability screen (`app`) | Implemented, **not yet built or run on a device** |
-| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented, **not yet built or run on a device** |
+| Android capture layer and capability screen (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
+| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
 | REW comparison, device validation, unchanged-room repeatability | Not started; see [validation-plan.md](docs/validation-plan.md) |
 
 The app module started from the Android Studio *Empty Activity* (Jetpack Compose) template:
-version catalog, single activity, Material 3 theme. It was written in an environment without access
-to Google's Maven repository, so the Android module has not been compiled yet. CI
-(`.github/workflows/build.yml`) builds it on every push. The versions in
-`gradle/libs.versions.toml` (AGP 8.13, Kotlin 2.4.21, Compose BOM 2025.10.00) may need bumping with
-Android Studio's upgrade assistant.
+version catalog, single activity, Material 3 theme. It builds with AGP 8.13.2, Kotlin 2.4.21 and
+Compose BOM 2025.10.00 (`./gradlew :app:assembleDebug`, lint clean of errors); CI
+(`.github/workflows/build.yml`) builds it on every push. Newer AndroidX releases and AGP 9 exist;
+upgrade with Android Studio's assistant when convenient.
 
 Following the brief's delivery order, device feasibility and unchanged-room repeatability (steps
 2–3) should be checked on the target phone before relying on the session and comparison UI.

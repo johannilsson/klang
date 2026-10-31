@@ -1,7 +1,7 @@
 [versions]
 # Android toolchain. These follow the Android Studio "Empty Activity" (Compose)
 # starter template; let the Android Studio upgrade assistant bump them.
-agp = "8.13.0"
+agp = "8.13.2"
 kotlin = "2.4.21"
 coreKtx = "1.17.0"
 lifecycle = "2.9.4"
