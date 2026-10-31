@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Recordings can be large; include them deliberately or exclude as needed. -->
+    <include domain="file" path="klang/" />
+</full-backup-content>
