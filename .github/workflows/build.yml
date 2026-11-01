@@ -18,14 +18,30 @@ jobs:
       - name: Core tests (DSP, sessions, export)
         run: ./gradlew -p core test :cli:installDist
 
-      - name: Android debug build
-        run: ./gradlew :app:assembleDebug
+      - name: Core test summary
+        if: always()
+        run: python3 .github/scripts/junit_summary.py 'core/*/build/test-results/test/*.xml'
+
+      - name: Android debug build and lint
+        run: ./gradlew :app:assembleDebug :app:lintDebug
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: klang-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results-debug.txt
+            app/build/reports/lint-results-debug.sarif
+          if-no-files-found: ignore
 
       - name: Upload test reports
         if: always()
