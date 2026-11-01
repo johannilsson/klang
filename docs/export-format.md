@@ -112,6 +112,14 @@ individual `values[]` with an `outlier` flag, `invalidReasons[]`), `changeSecond
 baseline), `percentReduction` ((baseline − treatment) / baseline × 100), `variabilitySeconds`,
 `verdict` and `notes[]`. The rule is defined in [dsp.md §8](dsp.md#8-repeats-and-comparisons).
 
+Optional (added within schema v1; absent in older exports, read as empty): `staleAnalyses[]`, one
+entry per compared session with impulse attempts that have no analysis at the comparison's
+`algorithmVersion`. Each entry has `sessionId`, `sessionName`, `algorithmVersion`,
+`impulseAttempts`, `missing` (attempts without a result at that version, counted as `NOT_ANALYSED`
+in the cells), `otherVersions` (map: newest algorithm version each missing attempt was analysed with →
+number of attempts) and `neverAnalysed`. Empty when every impulse attempt has a current result.
+Results from different algorithm versions are never mixed in one comparison.
+
 ## CSV
 
 `summary.csv` columns: `room, session, session_kind, intervention, position, attempt_id,

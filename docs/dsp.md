@@ -180,6 +180,9 @@ Implemented in `core/sessions` (`Comparator`, `ComparisonPolicy` 0.1.0, `RepeatP
   percentages are given, since five attempts do not support a justified model.
 * The overall summary is only a count of cells per verdict. Bands and positions are never averaged
   into a score, and missing cells are counted rather than dropped.
+* A comparison uses only results of one algorithm version (the app's current one). Attempts analysed
+  only with another version count as `NOT_ANALYSED`; the comparison lists them per session
+  (`staleAnalyses`) so the app can offer a re-analysis, which appends a result and keeps the older one.
 
 ## Known limitations
 
