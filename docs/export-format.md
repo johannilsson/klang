@@ -88,7 +88,7 @@ A deleted position is simply absent, together with its attempts in every session
 
 | Field | Meaning |
 |---|---|
-| `algorithmId`, `algorithmVersion` | e.g. `klang.schroeder-truncated`, `0.1.0` |
+| `algorithmId`, `algorithmVersion` | e.g. `klang.schroeder-truncated`, `0.2.0` |
 | `configuration` | every threshold used (see [dsp.md](dsp.md)) |
 | `analyzedAtEpochMs` | analysis time |
 | `state`, `reasons` | attempt-level quality state (`VALID`/`QUESTIONABLE`/`INVALID`) and reasons `{code, severity, message, value, threshold}` |

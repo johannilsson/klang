@@ -13,7 +13,8 @@ recordings (see [validation-plan.md](validation-plan.md)).
 
 Mono PCM, normalised so that digital full scale is 1.0 (float, or PCM16 / 32768). One recording =
 one attempt: at least 0.25 s of background, then the clap, then at least 1.0 s of decay and noise
-tail. The app records 5 s with the clap prompted at 1.5 s. The capture layer passes the sample
+tail. The app records 5 s with the clap prompted 1.5 s after the start (`PRE_ROLL_SECONDS`). Before that,
+a 3 s "get ready" countdown runs with the microphone off, so it is not part of the recording. The capture layer passes the sample
 positions of known timeline breaks (overrun, short read, route change, system silencing) as
 `PcmSignal.discontinuities`.
 

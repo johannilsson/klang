@@ -1,6 +1,6 @@
 # Validation plan and status
 
-Status as of version 0.1.0. ✅ done · ⏳ not yet done · ⚠ partially done
+Status as of algorithm 0.2.0 (app 0.1.0). ✅ done · ⏳ not yet done · ⚠ partially done
 
 ## 1. DSP on synthetic fixtures ✅
 

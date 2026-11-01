@@ -21,20 +21,22 @@ for the method and every threshold, `docs/export-format.md` for the export schem
 ./gradlew -p core :cli:installDist          # builds core/cli/build/install/klang-analyse/bin/klang-analyse
 
 # Android (needs the SDK, see below)
-./gradlew :app:assembleDebug :app:lintDebug  # APK: app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug  # APK: app/build/outputs/apk/debug/app-debug.apk
 
 # Regenerate docs/validation-synthetic.md from code (do this after any change to the DSP)
 ./gradlew -p core :dsp:test --tests '*ValidationReportTest' -Dklang.writeReport=true --rerun-tasks
 ```
 
-Test results are XML under `core/*/build/test-results/test/`. Gradle only prints failures in `-q` mode, so
-after a run count tests and failures from those files. A run filtered with `--tests` replaces the XML for
-that module, so the counts only cover the filtered tests: run `./gradlew -p core test` unfiltered for the
-real total (48 tests at the time of writing).
+Test results are XML under `core/*/build/test-results/test/` and `app/build/test-results/testDebugUnitTest/`.
+Gradle only prints failures in `-q` mode, so after a run count tests and failures from those files:
+`python3 .github/scripts/junit_summary.py` (core) and
+`python3 .github/scripts/junit_summary.py --title='App unit tests' 'app/build/test-results/testDebugUnitTest/*.xml'`.
+A run filtered with `--tests` replaces the XML for that module, so the counts only cover the filtered tests:
+run unfiltered for the real total. Do not write test counts into docs; CI's job summary shows the current ones.
 
 Run the app on a device: install the debug APK (sideload). An emulator does not reproduce the microphone
 behaviour that matters here (source, effects, headroom): that needs a real phone. CI
-(`.github/workflows/build.yml`) builds the core, runs the tests and builds the debug APK.
+(`.github/workflows/build.yml`) runs the core and app unit tests, lint, and builds the debug APK.
 
 ## Environment gotchas (cloud sandbox)
 
@@ -43,8 +45,10 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   Do not work around a denied host: tell the user.
 - **Android SDK** is not preinstalled. Install the command-line tools from `dl.google.com`
   (`repository2-3.xml` lists `commandlinetools-linux-*_latest.zip`), then
-  `sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-36" "build-tools;36.0.0" "platform-tools"`
-  and write `sdk.dir=$HOME/android-sdk` to `local.properties` (gitignored).
+  `sdkmanager --sdk_root=$HOME/android-sdk --licenses`, then
+  `sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"`
+  (compileSdk 37; AGP downloads any other build-tools it needs) and write `sdk.dir=<absolute $HOME/android-sdk>`
+  to `local.properties` (gitignored; in each git worktree too).
 - **Maven Central rate-limits with HTTP 429** from this sandbox, often on the first build after a change in
   dependencies. It is transient: retry with backoff (15 s, 30 s, 45 s…), e.g. loop the Gradle command while
   its output contains `429`. A 429 is not a build failure in the code.

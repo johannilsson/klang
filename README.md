@@ -10,16 +10,22 @@ a calibrated sound level meter and not a standards-compliant acoustic survey. Le
 dBFS (relative to digital full scale), never dB SPL. When a result would be unreliable, the app
 shows the reason instead of a number.
 
-## Status (0.1.0)
+## Status
+
+App 0.1.0, analysis algorithm `klang.schroeder-truncated` 0.2.0.
 
 | Part | State |
 |---|---|
-| DSP module (`core/dsp`) | Implemented; 31 unit tests on synthetic fixtures (see [validation-synthetic.md](docs/validation-synthetic.md)) |
-| Sessions, persistence, comparison, export (`core/sessions`) | Implemented; 8 unit tests |
+| DSP module (`core/dsp`) | Implemented; unit tests on synthetic fixtures (see [validation-synthetic.md](docs/validation-synthetic.md)) |
+| Sessions, persistence, comparison, export and import (`core/sessions`) | Implemented; unit tests |
 | Desktop analyser for imported WAVs (`core/cli`) | Implemented, for comparison with REW |
-| Android capture layer and capability screen (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
-| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
-| REW comparison, device validation, unchanged-room repeatability | Not started; see [validation-plan.md](docs/validation-plan.md) |
+| Android capture layer and capability screen (`app`) | Implemented; JVM/Robolectric unit tests; first test captures run on a Pixel 9 Pro (see [validation-plan.md §3](docs/validation-plan.md#3-device-capability-on-the-target-phone--first-findings)) |
+| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented; ten claps recorded on a Pixel 9 Pro with an earlier build. Re-analysis prompt, archive/delete, import, editing and targetSdk 37 **not yet run on a device** (checklist in issue #8) |
+| Device validation | Partly done (first findings); see [validation-plan.md](docs/validation-plan.md) |
+| REW comparison, unchanged-room repeatability, sensitivity | Not started; see [validation-plan.md](docs/validation-plan.md) |
+
+CI runs the core tests, the app unit tests and Android lint on every push, and writes the test counts
+to the job summary.
 
 The app module started from the Android Studio *Empty Activity* (Jetpack Compose) template:
 version catalog, single activity, Material 3 theme. It builds with Gradle 9.8.2, AGP 9.5.0 (built-in
