@@ -22,8 +22,12 @@ jobs:
         if: always()
         run: python3 .github/scripts/junit_summary.py 'core/*/build/test-results/test/*.xml'
 
-      - name: Android debug build and lint
-        run: ./gradlew :app:assembleDebug :app:lintDebug
+      - name: Android unit tests, debug build and lint
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+
+      - name: App test summary
+        if: always()
+        run: python3 .github/scripts/junit_summary.py 'app/build/test-results/testDebugUnitTest/*.xml'
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -48,4 +52,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: core/*/build/reports/tests/
+          path: |
+            core/*/build/reports/tests/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
