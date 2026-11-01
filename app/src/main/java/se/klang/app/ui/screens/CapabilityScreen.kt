@@ -23,6 +23,7 @@ import se.klang.app.CaptureUi
 import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
+import se.klang.app.ui.displayedT20
 import se.klang.app.ui.fmt
 import se.klang.app.ui.rememberWithMicPermission
 
@@ -96,7 +97,7 @@ fun CapabilityScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${b.centerHz} Hz${if (b.extended) " (ext.)" else ""}")
                             StateChip(b.state)
-                            Text("T20 ${fmt(b.t20?.seconds)} s · margin ${fmt(b.marginDb, 0)} dB")
+                            Text("T20 ${fmt(displayedT20(b)?.seconds)} s · margin ${fmt(b.marginDb, 0)} dB")
                         }
                     }
                     OutlinedButton(onClick = {

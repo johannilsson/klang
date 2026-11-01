@@ -25,6 +25,7 @@ import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
+import se.klang.app.ui.displayedT20
 import se.klang.app.ui.fmt
 import java.text.DateFormat
 import java.util.Date
@@ -59,22 +60,23 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
             }
         }
         if (an != null) items(an.bands, key = { it.centerHz }) { b ->
+            val t20 = displayedT20(b)
             SectionCard("${b.centerHz} Hz octave${if (b.extended) " (extended band)" else ""}") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StateChip(b.state)
-                    Text("T20 ${fmt(b.t20?.seconds)} s", style = MaterialTheme.typography.titleMedium)
+                    Text("T20 ${fmt(t20?.seconds)} s", style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
                     "EDT ${fmt(b.edt?.seconds)} s (secondary, not yet validated: 0…−10 dB fit, extrapolated to 60 dB)",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text("Margin ${fmt(b.marginDb, 1)} dB (needs 35) · truncated at ${fmt(b.truncationSeconds)} s", style = MaterialTheme.typography.bodySmall)
-                b.t20?.let { Text("Fit ${fmt(it.startSeconds, 3)}–${fmt(it.endSeconds, 3)} s, ${fmt(it.slopeDbPerSecond, 1)} dB/s, ξ ${fmt(it.nonLinearityPermille, 1)} ‰", style = MaterialTheme.typography.bodySmall) }
+                t20?.let { Text("Fit ${fmt(it.startSeconds, 3)}–${fmt(it.endSeconds, 3)} s, ${fmt(it.slopeDbPerSecond, 1)} dB/s, ξ ${fmt(it.nonLinearityPermille, 1)} ‰", style = MaterialTheme.typography.bodySmall) }
                 b.reasons.filter { r -> an.reasons.none { it.code == r.code } }.forEach { r ->
                     Text("• ${r.message}", style = MaterialTheme.typography.bodySmall)
                     advice(r.code)?.let { Text("   $it", style = MaterialTheme.typography.bodySmall) }
                 }
-                b.curve?.let { DecayPlot(it, b.t20) }
+                b.curve?.let { DecayPlot(it, t20) }
             }
         }
         item {
