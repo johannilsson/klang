@@ -49,8 +49,9 @@ Never paste the key or its passwords into an issue, a pull request or a chat.
 
 An app already installed with a *different* key (any build made before this was set up) cannot be updated by
 a build with the shared key. Export your rooms (*Export all*), uninstall once, install the first build signed
-with the shared key, and import the export. From then on every build upgrades the previous one, as long as
-its `versionCode` is higher (`defaultConfig.versionCode` in `app/build.gradle.kts`).
+with the shared key, and import the export. From then on every build installs over the previous one, as long as its
+`versionCode` is not lower (`defaultConfig.versionCode` in `app/build.gradle.kts`). A debug build does not need a
+new `versionCode`; raise it only for a build you hand on or publish (`scripts/build-apk.sh --bump`).
 
 ## Checking which key signed an APK
 
