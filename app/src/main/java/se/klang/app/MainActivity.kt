@@ -6,16 +6,32 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalView
 import se.klang.app.ui.screens.AttemptScreen
 import se.klang.app.ui.screens.CapabilityScreen
@@ -23,6 +39,8 @@ import se.klang.app.ui.screens.CompareScreen
 import se.klang.app.ui.screens.HomeScreen
 import se.klang.app.ui.screens.RoomScreen
 import se.klang.app.ui.screens.SessionScreen
+import se.klang.app.ui.screens.SheetHost
+import se.klang.app.ui.screens.TopBarMenu
 import se.klang.app.ui.theme.KlangTheme
 
 class MainActivity : ComponentActivity() {
@@ -59,27 +77,75 @@ fun KlangApp(vm: AppViewModel) {
         onDispose { view.keepScreenOn = false }
     }
 
-    Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        topBar = {
-            TopAppBar(
-                title = { Text(titleFor(vm, screen)) },
-                navigationIcon = {
-                    if (vm.backStack.size > 1) TextButton(onClick = { vm.back() }) { Text("Back") }
-                },
-            )
-        },
-    ) { padding ->
-        val m = Modifier.padding(padding)
-        when (screen) {
-            Screen.Home -> HomeScreen(vm, m)
-            Screen.Capability -> CapabilityScreen(vm, m)
-            is Screen.RoomDetail -> RoomScreen(vm, screen.roomId, m)
-            is Screen.SessionDetail -> SessionScreen(vm, screen.sessionId, m)
-            is Screen.AttemptDetail -> AttemptScreen(vm, screen.sessionId, screen.attemptId, m)
-            is Screen.Compare -> CompareScreen(vm, screen.roomId, m)
+    // Home gets a large title that collapses on scroll; other screens a small bar that tints when content scrolls under it.
+    // A fresh behaviour per screen so a collapsed state does not leak into the next screen.
+    val home = screen == Screen.Home
+    val scrollBehavior = key(screen) {
+        if (home) TopAppBarDefaults.exitUntilCollapsedScrollBehavior() else TopAppBarDefaults.pinnedScrollBehavior()
+    }
+    val navigationIcon: @Composable () -> Unit = {
+        if (vm.backStack.size > 1) {
+            IconButton(onClick = { vm.back() }, enabled = !vm.isCapturing) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Navigate up")
+            }
         }
     }
+    val title: @Composable () -> Unit = { Text(titleFor(vm, screen), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            if (home) {
+                LargeTopAppBar(title = title, navigationIcon = navigationIcon, actions = { TopBarMenu(vm, screen) }, scrollBehavior = scrollBehavior)
+            } else {
+                TopAppBar(title = title, navigationIcon = navigationIcon, actions = { TopBarMenu(vm, screen) }, scrollBehavior = scrollBehavior)
+            }
+        },
+        floatingActionButton = { MainAction(vm, screen) },
+    ) { padding ->
+        // Forward navigation slides in from the end, back slides out: the platform's default feel.
+        val depth = vm.backStack.size
+        AnimatedContent(
+            targetState = screen to depth,
+            transitionSpec = {
+                val forward = targetState.second >= initialState.second
+                val dir = if (forward) 1 else -1
+                (slideInHorizontally { w -> dir * w / 5 } + fadeIn()) togetherWith (slideOutHorizontally { w -> -dir * w / 5 } + fadeOut())
+            },
+            contentKey = { it.first },
+            label = "screen",
+        ) { (target, _) ->
+            val m = Modifier.padding(padding)
+            when (target) {
+                Screen.Home -> HomeScreen(vm, m)
+                Screen.Capability -> CapabilityScreen(vm, m)
+                is Screen.RoomDetail -> RoomScreen(vm, target.roomId, m)
+                is Screen.SessionDetail -> SessionScreen(vm, target.sessionId, m)
+                is Screen.AttemptDetail -> AttemptScreen(vm, target.sessionId, target.attemptId, m)
+                is Screen.Compare -> CompareScreen(vm, target.roomId, m)
+            }
+        }
+    }
+    SheetHost(vm)
+}
+
+/** The one primary action per setup screen. Rooms need a position before a session makes sense. */
+@Composable
+private fun MainAction(vm: AppViewModel, screen: Screen) {
+    @Suppress("UNUSED_VARIABLE") val rev = vm.revision
+    val (label, sheet) = when (screen) {
+        Screen.Home -> "New room" to Sheet.NewRoom
+        is Screen.RoomDetail -> {
+            val room = vm.room(screen.roomId) ?: return
+            if (room.positions.isEmpty()) "Add position" to Sheet.AddPosition(room.id) else "New session" to Sheet.NewSession(room.id)
+        }
+        else -> return
+    }
+    ExtendedFloatingActionButton(
+        onClick = { vm.sheet = sheet },
+        icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+        text = { Text(label) },
+    )
 }
 
 private fun titleFor(vm: AppViewModel, s: Screen): String = when (s) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import se.klang.app.AppViewModel
+import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.fmt
 import se.klang.app.ui.theme.BaselineColor
@@ -63,7 +65,11 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = ScreenPadding,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             SectionCard("Sessions") {
                 SessionPicker("Baseline", sessions.filter { it.kind != SessionKind.TREATMENT }, baseline) { baseline = it }
@@ -78,7 +84,7 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
             }
         }
         if (comparison == null) {
-            item { Text("Choose a baseline and a treatment session.", modifier = Modifier.padding(8.dp)) }
+            item { Text("Choose a baseline and a treatment session.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             if (comparison.configurationWarnings.isNotEmpty()) item {
                 SectionCard(if (comparison.configurationsIncompatible) "Configurations differ — comparison blocked" else "Notes") {
@@ -109,7 +115,7 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
                 }
             }
             item {
-                OutlinedButton(modifier = Modifier.padding(vertical = 12.dp), onClick = {
+                OutlinedButton(onClick = {
                     scope.launch { context.startActivity(Intent.createChooser(vm.exportRoom(roomId, listOf(comparison)), "Export comparison")) }
                 }) { Text("Export with this comparison") }
             }
@@ -130,7 +136,7 @@ private fun SessionPicker(label: String, options: List<Session>, selected: Strin
 @Composable
 private fun CellRow(c: ComparisonCell) {
     HorizontalDivider()
-    Column(Modifier.padding(vertical = 6.dp)) {
+    Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text("${c.bandHz} Hz${if (c.extendedBand) " (extended)" else ""}", fontWeight = FontWeight.Bold)
         Text(
             "Before: median ${fmt(c.baseline.medianSeconds)} s, IQR ${fmt(c.baseline.iqrSeconds)} s, ${c.baseline.usable}/${c.baseline.attempted} usable",

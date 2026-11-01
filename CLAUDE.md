@@ -30,7 +30,7 @@ for the method and every threshold, `docs/export-format.md` for the export schem
 Test results are XML under `core/*/build/test-results/test/`. Gradle only prints failures in `-q` mode, so
 after a run count tests and failures from those files. A run filtered with `--tests` replaces the XML for
 that module, so the counts only cover the filtered tests: run `./gradlew -p core test` unfiltered for the
-real total (47 tests at the time of writing).
+real total (48 tests at the time of writing).
 
 Run the app on a device: install the debug APK (sideload). An emulator does not reproduce the microphone
 behaviour that matters here (source, effects, headroom): that needs a real phone. CI

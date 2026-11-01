@@ -25,8 +25,9 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun KlangTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = false,
+    // Material You: follow the wallpaper colours on Android 12+, like other system apps. Data colours
+    // (baseline/treatment, quality states) are fixed in Color.kt and do not follow it.
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

@@ -52,6 +52,16 @@ sealed interface Screen {
     data class Compare(val roomId: String) : Screen
 }
 
+/** Bottom sheets opened from buttons and the top-bar menu. Only one is open at a time. */
+sealed interface Sheet {
+    data object NewRoom : Sheet
+    data class AddPosition(val roomId: String) : Sheet
+    data class NewSession(val roomId: String) : Sheet
+    data object Protocol : Sheet
+    data object HowToClap : Sheet
+    data class Conditions(val sessionId: String) : Sheet
+}
+
 sealed interface CaptureUi {
     data object Idle : CaptureUi
     /** "Get ready" pause before the microphone opens, so the button tap is not in the background recording. */
@@ -100,10 +110,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var capabilities by mutableStateOf<CapabilityReport?>(null)
         private set
 
-    fun navigate(s: Screen) { backStack += s }
+    var sheet by mutableStateOf<Sheet?>(null)
+
+    fun navigate(s: Screen) { sheet = null; backStack += s }
     fun back(): Boolean {
         if (isCapturing) return true // do not leave mid-capture
         if (backStack.size <= 1) return false
+        sheet = null
         backStack.removeAt(backStack.lastIndex)
         capture = CaptureUi.Idle
         return true
@@ -119,11 +132,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun session(id: String): Session? = store.session(id)
     fun attempts(sessionId: String): List<CaptureAttempt> = store.attempts(sessionId)
 
-    fun createRoom(name: String, notes: String) { store.createRoom(name, notes); changed() }
-    fun addPosition(roomId: String, name: String, notes: String) { store.addPosition(roomId, name, notes); changed() }
-    fun createSession(roomId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions) {
-        store.createSession(roomId, name, kind, intervention, conditions); changed()
+    fun createRoom(name: String, notes: String): Room = store.createRoom(name, notes).also { changed() }
+    fun addPosition(roomId: String, name: String, placementNotes: String, clapSpot: String) {
+        store.addPosition(roomId, name, placementNotes, clapSpot); changed()
     }
+    fun createSession(roomId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions): Session =
+        store.createSession(roomId, name, kind, intervention, conditions).also { changed() }
+
+    /** The protocol order: a baseline, then a repeat baseline, then treatments. Only a default; the user can pick. */
+    fun nextSessionKind(roomId: String): SessionKind {
+        val kinds = sessions(roomId).map { it.kind }.toSet()
+        return when {
+            SessionKind.BASELINE !in kinds -> SessionKind.BASELINE
+            SessionKind.REPEAT_BASELINE !in kinds -> SessionKind.REPEAT_BASELINE
+            else -> SessionKind.TREATMENT
+        }
+    }
+
+    fun defaultSessionName(roomId: String, kind: SessionKind, label: String): String {
+        val n = sessions(roomId).count { it.kind == kind }
+        return if (n == 0) label else "$label ${n + 1}"
+    }
+
+    /** Conditions of the room's latest session, to prefill the next one (the protocol keeps them the same). */
+    fun lastConditions(roomId: String): RoomConditions? = sessions(roomId).lastOrNull()?.conditions?.copy(sourcePosition = "")
     fun deleteAttempt(a: CaptureAttempt) { store.deleteAttempt(a); changed() }
 
     fun refreshCapabilities() { capabilities = AudioCapabilities.probe(getApplication()) }

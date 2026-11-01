@@ -2,6 +2,7 @@ package se.klang.app.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import se.klang.app.AppViewModel
 import se.klang.app.ui.DecayPlot
+import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
@@ -34,7 +36,11 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
     val an = a.latestAnalysis()
     var confirmDelete by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    LazyColumn(
+        modifier.fillMaxSize(),
+        contentPadding = ScreenPadding,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
         item {
             SectionCard("Recording #${a.sequence}") {
                 Text(DateFormat.getDateTimeInstance().format(Date(a.createdAtEpochMs)))
@@ -72,7 +78,7 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
             }
         }
         item {
-            OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.padding(vertical = 12.dp)) { Text("Delete this attempt and its recording") }
+            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete this attempt and its recording") }
         }
     }
     if (confirmDelete) {

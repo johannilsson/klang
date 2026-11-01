@@ -67,10 +67,14 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
 1. **Microphone check**. Shows what the phone claims: UNPROCESSED support, formats, AGC/NS/AEC,
    inputs. A test capture runs the full analysis without saving it, and *Share WAV* sends the file
    out, e.g. to REW.
-2. **Room → positions**. Three positions around the table at seated ear height, with placement notes.
+2. **Room → positions**, set up once per room. Three positions around the table at seated ear height,
+   each with the phone placement and its own fixed clap spot (distance and direction from the phone).
+   Every session records at the room's positions.
 3. **Sessions**. *Baseline*, then a *Repeat baseline* with the room unchanged, then *Treatment* with
-   the intervention described. Each session stores its conditions (doors and windows, furnishings,
-   occupancy, appliances, source position).
+   the intervention described; *New session* suggests the next type in that order. Each session stores
+   its conditions (doors and windows, furnishings, occupancy, appliances), prefilled from the previous
+   session. Forms open as sheets from buttons; secondary actions (protocol, compare, export,
+   microphone check, how to clap) are in the top-bar menu.
 4. **Per position**: record background, then claps. Each recording starts with a 3 s "get ready"
    countdown with the microphone off (so the button tap is not recorded), then lasts 5 s: stay quiet
    → *Clap once now* → stay still. A live level meter shows how loud the clap is (aim for −12 to

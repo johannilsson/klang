@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -35,7 +36,7 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
     when (val c = vm.capture) {
         CaptureUi.Idle -> Unit
         is CaptureUi.Countdown -> Card(
-            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -49,7 +50,7 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
             }
         }
         is CaptureUi.Recording -> Card(
-            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -69,7 +70,7 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
             }
         }
         is CaptureUi.Practice -> Card(
-            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -106,16 +107,16 @@ fun CapturePanel(vm: AppViewModel, onDoneContent: @Composable (attemptId: String
                 }
             }
         }
-        CaptureUi.Analyzing -> Text("Saving and analysing…", modifier = Modifier.padding(vertical = 8.dp))
+        CaptureUi.Analyzing -> Text("Saving and analysing…", modifier = Modifier.padding(vertical = 4.dp))
         is CaptureUi.Done -> Column {
             onDoneContent(c.attemptId)
             TextButton(onClick = { vm.dismissCapture() }) { Text("Dismiss") }
         }
         is CaptureUi.Problem -> Card(
-            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
         ) {
-            Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(c.message, modifier = Modifier.weight(1f))
                 TextButton(onClick = { vm.dismissCapture() }) { Text("OK") }
             }

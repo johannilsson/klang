@@ -24,8 +24,13 @@ data class Room(
 data class MeasurementPosition(
     val id: String,
     val name: String,
-    /** Height, orientation, support, case, distance to the source mark... */
+    /** Phone placement: height, orientation, support, case... */
     val placementNotes: String = "",
+    /**
+     * Where the person stands to clap for this position, e.g. "1.8 m from the phone, toward the kitchen".
+     * Part of the position (not the session) so every session repeats the same source location.
+     */
+    val clapSpot: String = "",
 )
 
 @Serializable
@@ -44,6 +49,10 @@ data class RoomConditions(
     val furnishings: String = "",
     val occupancy: String = "",
     val appliancesOff: Boolean? = null,
+    /**
+     * Legacy: per-session clap source description from before clap spots moved to [MeasurementPosition.clapSpot].
+     * No longer written by the app; kept so older sessions still show and export it.
+     */
     val sourcePosition: String = "",
     val notes: String = "",
 )

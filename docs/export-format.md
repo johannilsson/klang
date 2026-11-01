@@ -36,7 +36,7 @@ The same table is embedded in every export as `units`.
   "disclaimer": "Comparative, position-specific decay estimates ...",
   "room": {
     "id": "uuid", "name": "Kitchen", "notes": "", "createdAtEpochMs": 0,
-    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "" } ]
+    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "", "clapSpot": "" } ]
   },
   "sessions": [ {
     "session": {
@@ -51,6 +51,12 @@ The same table is embedded in every export as `units`.
   "comparisons": [ Comparison, ... ]
 }
 ```
+
+`positions[].placementNotes` describes the phone (height, support, orientation) and `positions[].clapSpot`
+where the person claps for that position (distance and direction from the phone). The clap spot belongs to the
+position so every session repeats it. `conditions.sourcePosition` is the older per-session clap source
+description: the app no longer writes it, but sessions recorded before the change keep it. Both fields are
+additive with an empty default, so the schema version stays 1; readers should treat a missing `clapSpot` as empty.
 
 ### `CaptureAttempt`
 
