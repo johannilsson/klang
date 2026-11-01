@@ -24,9 +24,11 @@ import se.klang.app.audio.MeasurementRecorder
 import se.klang.dsp.AnalysisConfiguration
 import se.klang.dsp.ClapPeakTracker
 import se.klang.dsp.DecayAnalyzer
+import se.klang.dsp.Levels
 import se.klang.dsp.PcmSignal
 import se.klang.dsp.Wav
 import se.klang.dsp.WavEncoding
+import se.klang.dsp.WavFormatException
 import se.klang.sessions.AnalysisRecord
 import se.klang.sessions.AnalysisService
 import se.klang.sessions.AudioConfiguration
@@ -64,7 +66,11 @@ sealed interface Sheet {
     data class NewSession(val roomId: String) : Sheet
     data object Protocol : Sheet
     data object HowToClap : Sheet
+    /** Editable conditions of a session. */
     data class Conditions(val sessionId: String) : Sheet
+    data class EditRoom(val roomId: String) : Sheet
+    data class EditPosition(val roomId: String, val positionId: String) : Sheet
+    data class EditSession(val sessionId: String) : Sheet
 }
 
 sealed interface CaptureUi {
@@ -92,6 +98,7 @@ sealed interface CaptureUi {
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val store = SessionStore(File(app.filesDir, "klang"))
+    private val exportDir = File(app.cacheDir, "exports")
     private val analysis = AnalysisService(store)
     private val recorder = MeasurementRecorder(app)
     val analysisConfig = AnalysisConfiguration()
@@ -129,6 +136,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun changed() { revision++ }
 
+    init {
+        // Shared export ZIPs and test WAVs accumulate in the cache; keep only the newest, which a share may still be reading.
+        viewModelScope.launch(Dispatchers.IO) { ExportCache.prune(exportDir) }
+    }
+
     // ---------------------------------------------------------------- data
 
     fun rooms(): List<Room> = store.rooms()
@@ -161,7 +173,72 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Conditions of the room's latest session, to prefill the next one (the protocol keeps them the same). */
     fun lastConditions(roomId: String): RoomConditions? = sessions(roomId).lastOrNull()?.conditions?.copy(sourcePosition = "")
-    fun deleteAttempt(a: CaptureAttempt) { store.deleteAttempt(a); changed() }
+    /**
+     * Deletes one clap or background attempt with its recording. Blocked like every edit while a
+     * capture or re-analysis runs: re-analysis rewrites attempt records and would bring a deleted one back.
+     */
+    fun deleteAttempt(a: CaptureAttempt): Boolean {
+        if (editingBlocked) return false
+        store.deleteAttempt(a); changed()
+        return true
+    }
+
+    /**
+     * True while something writes to the store in the background (capture and its analysis,
+     * re-analysis, import). Edits and deletes are refused meanwhile, like the deletes of #18, so a
+     * record is never rewritten from two places at once.
+     */
+    val editingBlocked: Boolean get() = isCapturing || reanalyzing || importing
+
+    fun updateRoom(roomId: String, name: String, notes: String): Boolean = edit { store.updateRoom(roomId, name, notes) }
+    fun updatePosition(roomId: String, positionId: String, name: String, placementNotes: String, clapSpot: String): Boolean =
+        edit { store.updatePosition(roomId, positionId, name, placementNotes, clapSpot) }
+    fun movePosition(roomId: String, positionId: String, offset: Int): Boolean = edit { store.movePosition(roomId, positionId, offset) }
+    fun updateSession(sessionId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions): Boolean =
+        edit { store.updateSession(sessionId, name, kind, intervention, conditions) }
+
+    private inline fun edit(block: () -> Unit): Boolean {
+        if (editingBlocked) return false
+        block(); changed()
+        return true
+    }
+
+    /** What deleting a position removes: its clap and background recordings, and the sessions they are in. */
+    data class PositionDeleteImpact(val recordings: Int, val sessions: Int)
+
+    fun positionDeleteImpact(roomId: String, positionId: String): PositionDeleteImpact {
+        val bySession = store.positionAttempts(roomId, positionId)
+        return PositionDeleteImpact(bySession.values.sumOf { it.size }, bySession.size)
+    }
+
+    /** Permanently deletes a position and its recordings in every session of the room, and closes their attempt screens. */
+    fun deletePosition(roomId: String, positionId: String): Boolean {
+        if (editingBlocked) return false
+        viewModelScope.launch {
+            val removed = withContext(Dispatchers.IO) {
+                val ids = store.positionAttempts(roomId, positionId).values.flatten().map { it.id }.toSet()
+                store.deletePosition(roomId, positionId)
+                ids
+            }
+            backStack.removeAll { it is Screen.AttemptDetail && it.attemptId in removed }
+            changed()
+        }
+        return true
+    }
+
+    /** Duration and levels of a recording, read from its WAV (dBFS, never SPL). Null when the file cannot be read. */
+    data class RecordingLevels(val durationSeconds: Double, val sampleRate: Int, val rmsDbfs: Double, val peakDbfs: Double)
+
+    suspend fun recordingLevels(a: CaptureAttempt): RecordingLevels? = withContext(Dispatchers.IO) {
+        try {
+            val signal = Wav.read(store.recordingFile(a).readBytes()).signal
+            RecordingLevels(signal.durationSeconds, signal.sampleRate, Levels.rmsDbfs(signal.samples), Levels.peakDbfs(signal.samples))
+        } catch (e: IOException) {
+            null
+        } catch (e: WavFormatException) {
+            null
+        }
+    }
 
     /** Whether lists include archived rooms / sessions (toggled from the top-bar menu). */
     var showArchivedRooms by mutableStateOf(false)
@@ -173,7 +250,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Permanently deletes a room with its sessions, attempts and recordings, then returns to Home. */
     fun deleteRoom(roomId: String) {
-        if (isCapturing || reanalyzing) return
+        if (editingBlocked) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) { store.deleteRoom(roomId) }
             backStack.retainAll { it == Screen.Home }
@@ -184,7 +261,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Permanently deletes a session with its attempts and recordings, and leaves its screens. */
     fun deleteSession(sessionId: String) {
-        if (isCapturing || reanalyzing) return
+        if (editingBlocked) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) { store.deleteSession(sessionId) }
             backStack.removeAll { (it is Screen.SessionDetail && it.sessionId == sessionId) || (it is Screen.AttemptDetail && it.sessionId == sessionId) }
@@ -223,7 +300,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun shareTestWav(): Intent? = withContext(Dispatchers.IO) {
         val t = testCapture ?: return@withContext null
         val app = getApplication<Application>()
-        val dir = File(app.cacheDir, "exports").apply { mkdirs() }
+        val dir = exportDir.apply { mkdirs() }
+        ExportCache.prune(dir)
         val file = File(dir, "klang-test-${System.currentTimeMillis()}.wav")
         file.outputStream().use { Wav.write(it, t.samples, t.sampleRate, WavEncoding.FLOAT_32) }
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
@@ -390,8 +468,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun exportRoom(roomId: String, comparisons: List<Comparison>): Intent = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
         val exporter = Exporter(store, BuildConfig.VERSION_NAME)
-        val dir = File(app.cacheDir, "exports").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
+        val dir = exportDir.apply { mkdirs() }
+        ExportCache.prune(dir)
         val file = File(dir, "klang-export-${System.currentTimeMillis()}.zip")
         file.outputStream().use { exporter.writeZip(exporter.document(roomId, comparisons), it) }
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)

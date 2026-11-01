@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
@@ -156,6 +158,11 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                             if (p.placementNotes.isNotBlank()) Text("Phone: ${p.placementNotes}")
                         }
                     },
+                    trailingContent = {
+                        IconButton(enabled = !vm.editingBlocked, onClick = { vm.sheet = Sheet.EditPosition(room.id, p.id) }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit position ${p.name}")
+                        }
+                    },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -187,7 +194,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                     }
                     backgrounds.forEachIndexed { i, a ->
                         if (i > 0 || impulses.isNotEmpty()) RecordingDivider()
-                        BackgroundRow(a)
+                        BackgroundRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) }
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -257,9 +264,9 @@ private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
     }
 }
 
-/** A background recording as a two-line list item (72 dp). */
+/** A background recording as a two-line list item (72 dp); opens its detail page (levels, events, delete). */
 @Composable
-private fun BackgroundRow(a: CaptureAttempt) {
+private fun BackgroundRow(a: CaptureAttempt, onClick: () -> Unit) {
     val events = a.captureEvents.size
     ListItem(
         leadingContent = { RecordingBadge("${a.sequence}", null) },
@@ -270,7 +277,9 @@ private fun BackgroundRow(a: CaptureAttempt) {
                 color = if (events > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 

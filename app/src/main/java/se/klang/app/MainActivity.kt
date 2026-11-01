@@ -153,6 +153,7 @@ private fun titleFor(vm: AppViewModel, s: Screen): String = when (s) {
     Screen.Capability -> "Microphone check"
     is Screen.RoomDetail -> vm.room(s.roomId)?.name ?: "Room"
     is Screen.SessionDetail -> vm.session(s.sessionId)?.name ?: "Session"
-    is Screen.AttemptDetail -> "Attempt"
+    is Screen.AttemptDetail ->
+        if (vm.attempts(s.sessionId).firstOrNull { it.id == s.attemptId }?.kind == se.klang.sessions.AttemptKind.BACKGROUND) "Background" else "Attempt"
     is Screen.Compare -> "Compare sessions"
 }

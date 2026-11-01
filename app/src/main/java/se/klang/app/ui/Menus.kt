@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 /**
  * Confirmation before a permanent delete. Says what is lost, that it cannot be undone, and offers
  * to export first (the export ZIP is the only copy that survives) or to archive instead.
+ * [detail] adds a consequence specific to the item; [canArchive] is false for items that have no archive.
  */
 @Composable
 fun ConfirmPermanentDelete(
@@ -21,6 +22,8 @@ fun ConfirmPermanentDelete(
     onDelete: () -> Unit,
     onExportFirst: () -> Unit,
     onDismiss: () -> Unit,
+    detail: String? = null,
+    canArchive: Boolean = true,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -28,8 +31,10 @@ fun ConfirmPermanentDelete(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("$what will be removed from this phone permanently, including the original recordings and every analysis of them. This cannot be undone.")
+                if (detail != null) Text(detail)
                 Text(
-                    "Export the room first if you may want the recordings later. Archiving hides it instead and keeps everything.",
+                    "Export the room first if you may want the recordings later." +
+                        if (canArchive) " Archiving hides it instead and keeps everything." else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -44,3 +49,16 @@ fun ConfirmPermanentDelete(
         },
     )
 }
+
+/** What the delete confirmation of a position says is lost (counts from [se.klang.app.AppViewModel.positionDeleteImpact]). */
+fun positionDeleteWhat(name: String, recordings: Int, sessions: Int): String = when (recordings) {
+    0 -> "Position “$name” (it has no recordings)"
+    else -> "Position “$name” with its ${plural(recordings, "recording")} in ${plural(sessions, "session")}"
+}
+
+/** Why deleting a position matters beyond its own recordings. */
+const val POSITION_DELETE_DETAIL =
+    "The position disappears from this room and from every comparison of it, because comparisons match positions by id. " +
+        "Clap and background recordings at the other positions are kept."
+
+fun plural(n: Int, word: String) = if (n == 1) "1 $word" else "$n ${word}s"
