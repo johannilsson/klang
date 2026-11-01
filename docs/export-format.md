@@ -64,6 +64,13 @@ additive with an empty default, so the schema version stays 1; readers should tr
 the app: it is hidden from lists and comparison pickers but all its data is kept. An export of a room
 always contains every session, archived or not. Readers that do not know the field can ignore it.
 
+`updatedAtEpochMs` (room, each position, session; optional, `null` or absent = never edited) is the time
+of the last metadata edit in the app: room name, notes or position order (including adding or deleting a
+position); position name, `placementNotes` or `clapSpot`; session name, `kind`, `intervention` or
+`conditions`. Additive within schema version 1. Position edits apply in place, so older sessions show the
+current description; this field says when it last changed. Recordings and analyses are never edited.
+A deleted position is simply absent, together with its attempts in every session.
+
 ### `CaptureAttempt`
 
 | Field | Meaning |
@@ -166,15 +173,17 @@ Import never overwrites or removes a recording or an analysis. With ids already 
 
 | Item already present | What import does |
 |---|---|
-| Room | Keeps the local name, notes and `archived` flag; adds positions whose ids are missing. A position already present keeps its local name, placement notes and clap spot. |
-| Session (same room) | Keeps the local metadata; adds attempts whose ids are missing. |
+| Room | Keeps the local name, notes, position order, `archived` flag and `updatedAtEpochMs`; adds positions whose ids are missing. A position already present keeps its local name, placement notes, clap spot and `updatedAtEpochMs`. |
+| Session (same room) | Keeps the local metadata (name, kind, intervention, conditions, `updatedAtEpochMs`); adds attempts whose ids are missing. |
 | Session (id belongs to a session of another room) | Skips the session and its attempts; reported. |
 | Attempt, identical WAV bytes | Keeps the local record (note, events, sequence); appends the exported analyses it does not already have (exact match on the whole `AnalysisRecord`), kept in `analyzedAtEpochMs` order. |
 | Attempt, different or missing WAV | Skips it, including its analyses; reported. |
 | WAV file without an attempt record (an interrupted import) | Reused if the bytes are identical, otherwise the attempt is skipped and reported. |
 
 So importing the same file twice changes nothing the second time, an interrupted import can be
-repeated, and exports from two phones of the same room merge without losing anything. The result
+repeated, and exports from two phones of the same room merge without losing anything. Local edits are
+never undone by an import. Deletions are not remembered, though: importing an export made before a
+position, session or recording was deleted adds it back as missing. The result
 message lists what was added, what was already present and everything skipped with the reason.
 
 ## Compatibility

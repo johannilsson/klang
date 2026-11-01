@@ -97,6 +97,15 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    lists and comparisons, everything kept, reversible; *Show archived* in the same menu lists them
    again) or deletes it permanently with its recordings, after a confirmation that suggests
    exporting first.
+9. **Edit**: *Edit room…* and *Edit session…* in the top-bar menu change a name, notes, session type
+   (which changes how Compare uses the session) or what changed; *Conditions* edits a session's room
+   conditions. Each position's ⋮ menu on the room screen edits it, moves it up or down, or deletes it.
+   A position edit applies in place, so older sessions show the new description (the sheet warns when
+   the position already has recordings). Deleting a position removes its clap and background
+   recordings in every session and takes it out of every comparison, after the same confirmation.
+   Background recordings open like claps (duration, levels in dBFS, capture events) and can be
+   deleted. Recordings and analysis results are never edited. Nothing can be edited while a
+   recording, re-analysis or import runs.
 
 ## Design notes
 
