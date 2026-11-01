@@ -1,12 +1,12 @@
 [versions]
 # Android toolchain. These follow the Android Studio "Empty Activity" (Compose)
 # starter template; let the Android Studio upgrade assistant bump them.
-agp = "8.13.2"
+agp = "9.5.0"
 kotlin = "2.4.21"
-coreKtx = "1.17.0"
-lifecycle = "2.9.4"
-activityCompose = "1.11.0"
-composeBom = "2025.10.00"
+coreKtx = "1.19.1"
+lifecycle = "2.11.0"
+activityCompose = "1.13.0"
+composeBom = "2026.09.00"
 junit4 = "4.13.2"
 androidxJunit = "1.3.0"
 espressoCore = "3.7.0"
@@ -41,7 +41,6 @@ junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }

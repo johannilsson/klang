@@ -22,10 +22,10 @@ shows the reason instead of a number.
 | REW comparison, device validation, unchanged-room repeatability | Not started; see [validation-plan.md](docs/validation-plan.md) |
 
 The app module started from the Android Studio *Empty Activity* (Jetpack Compose) template:
-version catalog, single activity, Material 3 theme. It builds with AGP 8.13.2, Kotlin 2.4.21 and
-Compose BOM 2025.10.00 (`./gradlew :app:assembleDebug`, lint clean of errors); CI
-(`.github/workflows/build.yml`) builds it on every push. Newer AndroidX releases and AGP 9 exist;
-upgrade with Android Studio's assistant when convenient.
+version catalog, single activity, Material 3 theme. It builds with Gradle 9.8.2, AGP 9.5.0 (built-in
+Kotlin support), Kotlin 2.4.21 and Compose BOM 2026.09.00, compiling against Android API 37
+(`./gradlew :app:assembleDebug`, lint clean of errors); CI (`.github/workflows/build.yml`) builds it
+on every push.
 
 Following the brief's delivery order, device feasibility and unchanged-room repeatability (steps
 2–3) should be checked on the target phone before relying on the session and comparison UI.
