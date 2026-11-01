@@ -54,7 +54,7 @@ CLAUDE.md           notes for Claude: build/test/run steps, sandbox gotchas, rul
 ## Build
 
 ```sh
-# Core: DSP + sessions + CLI (any JDK 17+, no Android SDK)
+# Core: DSP + sessions + CLI (JDK 21, no Android SDK)
 ./gradlew -p core test
 ./gradlew -p core :cli:installDist
 core/cli/build/install/klang-analyse/bin/klang-analyse recording.wav        # table
