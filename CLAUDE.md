@@ -25,7 +25,7 @@ others **only when the task touches them**, not up front:
 
 ```sh
 scripts/check.sh [core|app]   # the CI checks; prints counts, errors and failing tests only (retries Maven 429)
-scripts/build-apk.sh          # bumps versionCode, builds the debug APK, shows version and signing key
+scripts/build-apk.sh          # builds the debug APK, shows version and signing key (--bump raises versionCode)
 scripts/screens.sh            # renders the main screens to build/screens/*.png (real analyser, synthetic recordings)
 ```
 
@@ -84,7 +84,8 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   `KLANG_KEYSTORE_PASSWORD`, `KLANG_KEY_ALIAS`, `KLANG_KEY_PASSWORD` (docs/signing.md), so the APK can upgrade
   the one on the user's phone. Without them the build uses the default debug key, which cannot upgrade a build
   signed with another key: say so when you hand over an APK, and check it with `apksigner verify --print-certs`.
-  Never create or print the real key, and never commit one; bump `versionCode` for every APK the user will install.
+  Never create or print the real key, and never commit one. A debug build does not need a new `versionCode`
+  (the same code installs over the installed app); bump it only when the user asks.
 - Unzip user-provided exports into a **new** directory and never `rm -rf` (the safety check blocks it, and it
   is not needed).
 - **Parallel agents in git worktrees** may start from an old commit, not from your branch. Tell each agent to

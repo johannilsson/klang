@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Builds the debug APK for sideloading and says what it is.
 #
-#   scripts/build-apk.sh             bump versionCode by one, build
-#   scripts/build-apk.sh --no-bump   build without changing versionCode
+#   scripts/build-apk.sh          build, versionCode unchanged
+#   scripts/build-apk.sh --bump   raise versionCode by one first
 #
-# An update only installs over an installed app when both have the same signing key and a higher versionCode
-# (docs/signing.md), so a bump is the default. The APK is copied to build/apk/. The bump is left in
-# app/build.gradle.kts for you to commit.
+# A debug build does not need a new versionCode: Android installs an APK over the installed app when it has the
+# same signing key and a versionCode that is not lower (docs/signing.md). Bump only for a build that is handed on
+# or published. The APK is copied to build/apk/. A bump is left in app/build.gradle.kts for you to commit.
 set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 gradle_file="$ROOT/app/build.gradle.kts"
@@ -14,10 +14,10 @@ mkdir -p "$ROOT/build/apk"
 
 old=$(sed -n 's/^ *versionCode = \([0-9]*\).*/\1/p' "$gradle_file" | head -1)
 [ -n "$old" ] || { echo "Could not find versionCode in app/build.gradle.kts" >&2; exit 2; }
-if [ "${1:-}" = "--no-bump" ]; then new=$old; else
+if [ "${1:-}" = "--bump" ]; then
   new=$((old + 1))
   sed -i "s/^\( *versionCode = \)$old\b/\1$new/" "$gradle_file"
-fi
+else new=$old; fi
 
 gradle_retry "$ROOT/build/build-apk.log" :app:assembleDebug || {
   grep -E "^e: |What went wrong" -A3 "$ROOT/build/build-apk.log" | head -20
@@ -29,7 +29,7 @@ name=$(sed -n 's/^ *versionName = "\(.*\)".*/\1/p' "$gradle_file" | head -1)
 out="$ROOT/build/apk/klang-$name-code$new-debug.apk"
 cp "$apk" "$out"
 
-echo "versionCode $old -> $new, versionName $name"
+if [ "$new" != "$old" ]; then echo "versionCode $old -> $new, versionName $name"; else echo "versionCode $new (unchanged), versionName $name"; fi
 echo "APK: $out ($(du -h "$out" | cut -f1))"
 signer=$(android_tool apksigner)
 if [ -n "$signer" ]; then
