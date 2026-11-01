@@ -19,9 +19,12 @@ import java.util.UUID
  * import-staging/                                    (WAVs unpacked by an import in progress)
  * ```
  *
+ * Metadata edits ([updateRoom], [updatePosition], [movePosition], [updateSession]) rewrite the
+ * record and set its `updatedAtEpochMs`; recordings and analyses are never edited.
+ *
  * Archiving ([setRoomArchived], [setSessionArchived]) only sets a flag: lists in the app hide
- * archived items, and every record and recording is kept. Deleting ([deleteSession], [deleteRoom])
- * is a separate, explicit step that removes recordings permanently. A session directory is first
+ * archived items, and every record and recording is kept. Deleting ([deleteSession], [deleteRoom],
+ * [deletePosition], [deleteAttempt]) is a separate, explicit step that removes recordings permanently. A session directory is first
  * renamed into `trash/` (one atomic rename), so a crash mid-delete leaves either the whole session
  * or none of it; leftovers in `trash/` are removed when the store is next opened.
  */
@@ -51,6 +54,61 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         val p = MeasurementPosition(newId(), name, placementNotes, clapSpot)
         saveRoom(room.copy(positions = room.positions + p))
         return p
+    }
+
+    /** Renames a room or changes its notes. Sets [Room.updatedAtEpochMs]. */
+    fun updateRoom(roomId: String, name: String, notes: String): Room {
+        require(name.isNotBlank()) { "A room needs a name" }
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        return room.copy(name = name, notes = notes, updatedAtEpochMs = clock()).also(::saveRoom)
+    }
+
+    /**
+     * Edits a position in place: there is no per-session copy, so every session of the room, older
+     * ones included, shows the new name, placement and clap spot. Recordings are not touched.
+     */
+    fun updatePosition(roomId: String, positionId: String, name: String, placementNotes: String, clapSpot: String): MeasurementPosition {
+        require(name.isNotBlank()) { "A position needs a name" }
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        val old = requireNotNull(room.positions.firstOrNull { it.id == positionId }) { "No position $positionId in room $roomId" }
+        val p = old.copy(name = name, placementNotes = placementNotes, clapSpot = clapSpot, updatedAtEpochMs = clock())
+        saveRoom(room.copy(positions = room.positions.map { if (it.id == positionId) p else it }))
+        return p
+    }
+
+    /**
+     * Moves a position [offset] places in the room's order (negative = earlier), clamped to the list.
+     * Only the display order changes; comparisons match positions by id.
+     */
+    fun movePosition(roomId: String, positionId: String, offset: Int): Room {
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        val from = room.positions.indexOfFirst { it.id == positionId }
+        require(from >= 0) { "No position $positionId in room $roomId" }
+        val to = (from + offset).coerceIn(0, room.positions.lastIndex)
+        if (to == from) return room
+        val list = room.positions.toMutableList().apply { add(to, removeAt(from)) }
+        return room.copy(positions = list, updatedAtEpochMs = clock()).also(::saveRoom)
+    }
+
+    /** Clap and background attempts of a position, per session of its room that has any (what a delete removes). */
+    fun positionAttempts(roomId: String, positionId: String): Map<Session, List<CaptureAttempt>> =
+        sessions(roomId).associateWith { s -> attempts(s.id).filter { it.positionId == positionId } }.filterValues { it.isNotEmpty() }
+
+    /**
+     * Permanently deletes a position and, in every session of its room (archived ones included), its
+     * clap and background attempts with their analyses and recordings.
+     *
+     * Crash safety follows [deleteSession]: each attempt record is moved into `trash/` before its
+     * recording is removed ([deleteAttempt]), so no attempt ever points at a missing WAV, and the
+     * position leaves the room record last. An interrupted delete leaves a loadable room in which the
+     * position still exists with fewer recordings (at worst one WAV no attempt refers to); running the
+     * delete again finishes it.
+     */
+    fun deletePosition(roomId: String, positionId: String): Room {
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        require(room.positions.any { it.id == positionId }) { "No position $positionId in room $roomId" }
+        positionAttempts(roomId, positionId).values.flatten().forEach(::deleteAttempt)
+        return room.copy(positions = room.positions.filterNot { it.id == positionId }, updatedAtEpochMs = clock()).also(::saveRoom)
     }
 
     fun setRoomArchived(roomId: String, archived: Boolean): Room {
@@ -86,6 +144,17 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     fun sessions(roomId: String? = null): List<Session> = File(root, "sessions").listFiles { f -> f.isDirectory }.orEmpty()
         .mapNotNull { session(it.name) }.filter { roomId == null || it.roomId == roomId }
         .sortedWith(compareBy({ it.createdAtEpochMs }, { it.id }))
+
+    /**
+     * Edits a session's metadata. Changing [kind] changes how Compare uses the session (baseline,
+     * repeat baseline or treatment). Recordings and analyses are not touched. Sets [Session.updatedAtEpochMs].
+     */
+    fun updateSession(sessionId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions): Session {
+        require(name.isNotBlank()) { "A session needs a name" }
+        val s = requireNotNull(session(sessionId)) { "No session $sessionId" }
+        return s.copy(name = name, kind = kind, intervention = intervention, conditions = conditions, updatedAtEpochMs = clock())
+            .also(::saveSession)
+    }
 
     fun setSessionArchived(sessionId: String, archived: Boolean): Session {
         val s = requireNotNull(session(sessionId)) { "No session $sessionId" }
@@ -168,10 +237,20 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     /** A fresh scratch directory inside the store (same file system, so files can be renamed into place). */
     internal fun newStagingDir(): File = File(root, "$STAGING/${newId()}").apply { mkdirs() }
 
-    /** Optional deletion of an attempt (e.g. a rejected one) and its recording. Never automatic. */
+    /**
+     * Optional deletion of an attempt (e.g. a rejected one) and its recording. Never automatic.
+     * The record goes first, renamed into `trash/` so it is loaded whole or not at all, then the
+     * recording: an attempt never points at a missing WAV.
+     */
     fun deleteAttempt(a: CaptureAttempt) {
-        File(sessionDir(a.sessionId), "attempts/${a.id}.json").delete()
-        recordingFile(a).delete()
+        val record = File(sessionDir(a.sessionId), "attempts/${safe(a.id)}.json")
+        if (record.exists()) {
+            val tomb = File(root, "$TRASH/attempt-${a.id}-${newId()}.json")
+            tomb.parentFile.mkdirs()
+            if (record.renameTo(tomb)) tomb.delete() else check(record.delete()) { "Could not delete attempt ${a.id}" }
+        }
+        val wav = recordingFile(a)
+        check(!wav.exists() || wav.delete()) { "Could not delete the recording of attempt ${a.id}" }
     }
 
     fun appendAnalysis(a: CaptureAttempt, record: AnalysisRecord): CaptureAttempt =
