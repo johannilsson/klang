@@ -93,6 +93,11 @@ were the recording (taps in the pre-roll, no headroom, ambient noise, late movem
   capture loop only copies samples into a preallocated array; no DSP, storage or UI work on it.
 - Example values may appear in UI previews only, visibly marked as examples.
 - Keep the synthetic tests as engineering checks. Do not present their accuracy as real-room accuracy.
+- **Reference data only from public, freely readable sources.** Target values, guide ranges, formulas and
+  coefficients the app builds on must come from documents anyone can read for free (e.g. UK Building
+  Bulletin 93, Open Government Licence; public-domain physics such as Sabine's formula), cited in `docs/`
+  with title, edition, table/section and URL. Never paid standards (DIN, SS, ISO, ANSI unless the
+  publisher offers it free), never values from memory: verify against the source first.
 
 ## Conventions
 
