@@ -36,7 +36,8 @@ The same table is embedded in every export as `units`.
   "disclaimer": "Comparative, position-specific decay estimates ...",
   "room": {
     "id": "uuid", "name": "Kitchen", "notes": "", "createdAtEpochMs": 0,
-    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "", "clapSpot": "" } ]
+    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "", "clapSpot": "" } ],
+    "archived": false
   },
   "sessions": [ {
     "session": {
@@ -44,7 +45,8 @@ The same table is embedded in every export as `units`.
       "kind": "BASELINE | REPEAT_BASELINE | TREATMENT",
       "intervention": "",
       "conditions": { "doorsAndWindows": "", "furnishings": "", "occupancy": "", "appliancesOff": true, "sourcePosition": "", "notes": "" },
-      "createdAtEpochMs": 0
+      "createdAtEpochMs": 0,
+      "archived": false
     },
     "attempts": [ CaptureAttempt, ... ]
   } ],
@@ -57,6 +59,10 @@ where the person claps for that position (distance and direction from the phone)
 position so every session repeats it. `conditions.sourcePosition` is the older per-session clap source
 description: the app no longer writes it, but sessions recorded before the change keep it. Both fields are
 additive with an empty default, so the schema version stays 1; readers should treat a missing `clapSpot` as empty.
+
+`archived` (room and session, optional, default `false`) is set when the user archived the item in
+the app: it is hidden from lists and comparison pickers but all its data is kept. An export of a room
+always contains every session, archived or not. Readers that do not know the field can ignore it.
 
 ### `CaptureAttempt`
 

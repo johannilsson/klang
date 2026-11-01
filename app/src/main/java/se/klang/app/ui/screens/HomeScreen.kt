@@ -28,7 +28,8 @@ import se.klang.app.ui.FabScreenPadding
 @Composable
 fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
-    val rooms = vm.rooms()
+    val allRooms = vm.rooms()
+    val rooms = allRooms.filter { vm.showArchivedRooms || !it.archived }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -44,7 +45,7 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (rooms.isEmpty()) {
+        if (allRooms.isEmpty()) {
             // Before the first room, point to the microphone check. Afterwards it lives in the top-bar menu.
             item {
                 Card(
@@ -67,6 +68,14 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        } else if (rooms.isEmpty()) {
+            item {
+                Text(
+                    "All rooms are archived. Show them from the ⋮ menu, or tap New room.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         } else {
             item { SectionHeader("Rooms") }
             item {
@@ -75,7 +84,9 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
                         ListItem(
                             headlineContent = { Text(room.name) },
-                            supportingContent = { Text("${room.positions.size} positions · ${vm.sessions(room.id).size} sessions") },
+                            supportingContent = {
+                                Text((if (room.archived) "Archived · " else "") + "${room.positions.size} positions · ${vm.sessions(room.id).size} sessions")
+                            },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { vm.navigate(Screen.RoomDetail(room.id)) },

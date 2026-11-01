@@ -160,6 +160,35 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun lastConditions(roomId: String): RoomConditions? = sessions(roomId).lastOrNull()?.conditions?.copy(sourcePosition = "")
     fun deleteAttempt(a: CaptureAttempt) { store.deleteAttempt(a); changed() }
 
+    /** Whether lists include archived rooms / sessions (toggled from the top-bar menu). */
+    var showArchivedRooms by mutableStateOf(false)
+    var showArchivedSessions by mutableStateOf(false)
+
+    /** Archive hides a room or session from the lists and keeps every record and recording. */
+    fun setRoomArchived(roomId: String, archived: Boolean) { store.setRoomArchived(roomId, archived); changed() }
+    fun setSessionArchived(sessionId: String, archived: Boolean) { store.setSessionArchived(sessionId, archived); changed() }
+
+    /** Permanently deletes a room with its sessions, attempts and recordings, then returns to Home. */
+    fun deleteRoom(roomId: String) {
+        if (isCapturing || reanalyzing) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { store.deleteRoom(roomId) }
+            backStack.retainAll { it == Screen.Home }
+            if (backStack.isEmpty()) backStack += Screen.Home
+            changed()
+        }
+    }
+
+    /** Permanently deletes a session with its attempts and recordings, and leaves its screens. */
+    fun deleteSession(sessionId: String) {
+        if (isCapturing || reanalyzing) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { store.deleteSession(sessionId) }
+            backStack.removeAll { (it is Screen.SessionDetail && it.sessionId == sessionId) || (it is Screen.AttemptDetail && it.sessionId == sessionId) }
+            changed()
+        }
+    }
+
     fun refreshCapabilities() { capabilities = AudioCapabilities.probe(getApplication()) }
 
     /** Result of a feasibility test capture on the capability screen. Not stored in any session. */

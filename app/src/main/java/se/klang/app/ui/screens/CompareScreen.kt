@@ -55,7 +55,7 @@ fun verdictLabel(v: Verdict) = when (v) {
 fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val room = vm.room(roomId) ?: return
-    val sessions = vm.sessions(roomId)
+    val sessions = vm.sessions(roomId).filter { !it.archived }
     var baseline by remember { mutableStateOf(sessions.firstOrNull { it.kind == SessionKind.BASELINE }?.id) }
     var repeat by remember { mutableStateOf(sessions.firstOrNull { it.kind == SessionKind.REPEAT_BASELINE }?.id) }
     var treatment by remember { mutableStateOf(sessions.lastOrNull { it.kind == SessionKind.TREATMENT }?.id) }

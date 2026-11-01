@@ -17,6 +17,8 @@ data class Room(
     val notes: String = "",
     val createdAtEpochMs: Long,
     val positions: List<MeasurementPosition> = emptyList(),
+    /** Hidden from lists; all data kept. Deletion is a separate, explicit step. */
+    val archived: Boolean = false,
 )
 
 /** A named microphone position, e.g. "Seat by window". Results are never generalised beyond it. */
@@ -67,6 +69,8 @@ data class Session(
     val intervention: String = "",
     val conditions: RoomConditions = RoomConditions(),
     val createdAtEpochMs: Long,
+    /** Hidden from lists and comparison pickers; all data kept. Deletion is a separate, explicit step. */
+    val archived: Boolean = false,
 )
 
 /**

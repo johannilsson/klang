@@ -90,6 +90,9 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    inconclusive*.
 6. **Export**: a ZIP with `results.json`, `summary.csv`, `comparison.csv` and the original WAVs,
    shared through the system share sheet ([schema](docs/export-format.md)).
+7. **Archive or delete**: the top-bar menu on a room or session screen archives it (hidden from lists and
+   comparisons, everything kept, reversible) or deletes it permanently with its recordings, after a
+   confirmation that suggests exporting first.
 
 ## Design notes
 
