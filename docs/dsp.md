@@ -187,9 +187,35 @@ Implemented in `core/sessions` (`Comparator`, `ComparisonPolicy` 0.1.0, `RepeatP
   method-dependent decay estimates, not an intrinsic RT60 of the room.
 * Handclaps vary in spectrum and direction from clap to clap. Weak bands are expected to fail the
   margin gate, and they stay unavailable.
-* On the noise fixture, 250 Hz decays at T60 = 0.3 s read ~9 % high on average, with a wide
-  per-realisation spread ([validation-synthetic.md](validation-synthetic.md)). This is one reason
-  250 Hz is an extended band.
+* **250 Hz at short decays on the noise fixture (issue #11).** The table in
+  [validation-synthetic.md](validation-synthetic.md) shows 1.088 (0.875–1.244) at T60 = 0.3 s. That
+  is the mean of only 10 seeds. Over 200 seeds (`LowBandBiasDiagnosticTest`, opt-in, see its header)
+  the same configuration gives **1.029** on average (SD 0.121, standard error 0.009, median 1.017,
+  range 0.775–1.368). Seeds 1–10 happen to sit high, and 0.059 above the 200-seed mean is
+  1.6 standard errors of a 10-seed mean. At T60 = 0.5 s, 200 seeds give 1.006 (SD 0.085). The
+  diagnostic also isolates each candidate cause:
+  * *Truncation search and envelope window*: these do not contribute. The envelope only feeds the
+    margin and `tc`, never the EDC. A plain Schroeder integral of the same band signal to 0.6 s
+    after the onset, with no truncation and no compensation, gives the same T20 to within 0.0005 for
+    every seed. `tc` ≈ 0.42 s is far below −25 dB on the EDC. Envelope windows of 10, 16, 32 and
+    64 ms give identical T20. Shorter windows only produce more `TRUNCATION_NOT_CONVERGED` flags (27,
+    20, 7, 0 of 200).
+  * *Forward-filter ringing*: this does not contribute. B·T20 is 55 on average (41–73), far above
+    the limit of 16, so `FILTER_RINGING_LIMIT` never fires here. `FilterDirection.TIME_REVERSED`
+    gives 1.027 (SD 0.122) against 1.029 forward. Filtering the fixture's own band component
+    forward or time-reversed gives 1.031 and 1.029.
+  * *The fixture realisation itself*: this is where the remaining +2–3 % comes from. The fixture's
+    250 Hz component on its own, with no background, no other bands and no analysis filter, already
+    gives 1.026 (SD 0.117) under the same −5…−25 dB fit. This holds whether the fixture is
+    band-limited forward or time-reversed (1.023). It is a property of fitting a single realisation
+    of band-limited decaying noise with a small bandwidth × decay-time product. 500 Hz at the same
+    T60 has twice the bandwidth and gives 1.006 (SD 0.077).
+
+  Conclusion: there is no analyser bias at 250 Hz to correct, so nothing was changed (algorithm
+  0.2.0). Most 250 Hz bands at T60 = 0.3 s (173 of 200) are already marked questionable
+  (`NON_LINEAR_DECAY`) because a single noise realisation decays irregularly. That is the gate
+  working, and it is not relaxed. A single short 250 Hz decay carries ~12 % scatter. This is one
+  reason 250 Hz is an extended band. These are synthetic engineering checks, not real-room accuracy.
 * The second-impulse and background-transient thresholds, and the ξ limit, are untested on real
   kitchen recordings and are the first candidates for tuning.
 * The comparison with Room EQ Wizard has not been done yet (see the validation plan).
