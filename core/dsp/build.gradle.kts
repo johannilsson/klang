@@ -26,5 +26,7 @@ tasks.test {
     useJUnitPlatform()
     // Opt-in regeneration of docs/validation-synthetic.md (see ValidationReportTest).
     System.getProperty("klang.writeReport")?.let { systemProperty("klang.writeReport", it) }
+    // Opt-in diagnostics (see LowBandBiasDiagnosticTest).
+    listOf("klang.diagnostics", "klang.diagnosticSeeds").forEach { k -> System.getProperty(k)?.let { systemProperty(k, it) } }
     systemProperty("klang.reportPath", rootProject.file("../docs/validation-synthetic.md").absolutePath)
 }
