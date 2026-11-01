@@ -15,6 +15,7 @@ import java.util.UUID
  * sessions/<sessionId>/session.json
  * sessions/<sessionId>/attempts/<attemptId>.json
  * sessions/<sessionId>/recordings/<attemptId>.wav    (original, never overwritten)
+ * reference-profiles/<id>-v<version>.json           (imported reference profiles, #27)
  * trash/                                             (tombstones of deletions in progress)
  * import-staging/                                    (WAVs unpacked by an import in progress)
  * ```
@@ -110,6 +111,105 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         positionAttempts(roomId, positionId).values.flatten().forEach(::deleteAttempt)
         return room.copy(positions = room.positions.filterNot { it.id == positionId }, updatedAtEpochMs = clock()).also(::saveRoom)
     }
+
+    /**
+     * Sets what the room is used for, its optional volume and its reverberation target. The target
+     * only describes results; it never changes an analysis or a comparison. A USER or IMPORTED
+     * profile is copied into the room; a built-in one is stored as (id, version). Sets
+     * [Room.targetUpdatedAtEpochMs].
+     */
+    fun updateRoomTarget(roomId: String, use: RoomUse?, volumeCubicMetres: Double?, target: ProfileSelection?): Room {
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        require(volumeCubicMetres == null || (volumeCubicMetres.isFinite() && volumeCubicMetres in ProfileLimits.MIN_VOLUME_CUBIC_METRES..ProfileLimits.MAX_VOLUME_CUBIC_METRES)) {
+            "Room volume must be ${ProfileLimits.MIN_VOLUME_CUBIC_METRES.toInt()}–${ProfileLimits.MAX_VOLUME_CUBIC_METRES.toInt()} m³"
+        }
+        if (target != null) {
+            val p = requireNotNull(target.resolve()) { "Unknown built-in profile ${target.profileId} v${target.profileVersion}" }
+            require(p.id == target.profileId && p.version == target.profileVersion) { "Profile selection does not match its copy" }
+            val problems = ProfileValidation.problems(p)
+            require(problems.isEmpty()) { "Invalid profile: " + problems.joinToString("; ") }
+            require((p.source is ProfileSource.BuiltIn) == (target.profile == null)) { "Built-in profiles are stored by id and version only; others need a copy" }
+            val known = room.userProfile
+            if (p.source is ProfileSource.User && known != null && known.id == p.id) {
+                require(p.version > known.version || (p.version == known.version && p.target == known.target && p.bands == known.bands)) {
+                    "Your target ${p.id} version ${p.version} would name a different value than before; use userProfile() for a new version"
+                }
+            }
+        }
+        val user = target?.profile?.takeIf { it.source is ProfileSource.User } ?: room.userProfile
+        return room.copy(use = use, volumeCubicMetres = volumeCubicMetres, target = target, userProfile = user, targetUpdatedAtEpochMs = clock())
+            .also(::saveRoom)
+    }
+
+    /**
+     * A USER profile ("your target") for [roomId]: an upper limit of [seconds] on the speech-range
+     * average, or, with [lowerSeconds], a range from there up to [seconds] (stored as a target in the
+     * middle with tolerance factors). Its id is tied to the room; the version goes up whenever the value
+     * changes, so older summaries keep pointing at the value they used.
+     */
+    fun userProfile(roomId: String, seconds: Double, lowerSeconds: Double? = null): ReferenceProfile {
+        require(lowerSeconds == null || lowerSeconds < seconds) { "The lower end of your target must be below the upper end" }
+        require(lowerSeconds == null || lowerSeconds >= ProfileLimits.MIN_SECONDS) { "The lower end of your target must be at least ${ProfileLimits.MIN_SECONDS} s" }
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        val id = "user-${safe(roomId)}".take(64)
+        val previous = room.userProfile?.takeIf { it.id == id }
+        val target: ReverbTarget = if (lowerSeconds == null) ReverbTarget.UpperLimit(seconds) else {
+            val middle = (lowerSeconds + seconds) / 2
+            ReverbTarget.TargetWithTolerance(middle, lowerSeconds / middle, seconds / middle)
+        }
+        val version = when {
+            previous == null -> 1
+            previous.target == target -> previous.version
+            else -> previous.version + 1
+        }
+        val p = ReferenceProfile(
+            id = id, version = version, name = "Your target",
+            roomUses = listOfNotNull(room.use),
+            source = if (previous != null && previous.version == version) previous.source else ProfileSource.User(clock()),
+            target = target, bands = BandScope.SpeechAverage,
+        )
+        val problems = ProfileValidation.problems(p)
+        require(problems.isEmpty()) { problems.joinToString("; ") }
+        return p
+    }
+
+    // ---- Imported reference profiles ----
+
+    /** What [importProfile] did. */
+    data class ProfileImportResult(val profile: ReferenceProfile, val alreadyPresent: Boolean)
+
+    /**
+     * Reads a `klang.reference-profile` file ([ProfileImporter]) and stores it. Importing the same
+     * declared profile again changes nothing. A different profile under an id and version already
+     * stored is rejected: a changed profile needs a new version. Nothing is stored on any error.
+     */
+    fun importProfile(bytes: ByteArray, fileName: String): ProfileImportResult {
+        val p = ProfileImporter.parse(bytes, fileName, clock())
+        val file = profileFile(p.id, p.version)
+        if (file.exists()) {
+            val have = json.decodeFromString(ReferenceProfile.serializer(), file.readText())
+            if (sameDeclaration(have, p)) return ProfileImportResult(have, alreadyPresent = true)
+            throw ProfileImportException(
+                "A different profile “${have.name}” is already imported as ${p.id} version ${p.version}; a changed profile needs a new version number.",
+            )
+        }
+        writeAtomic(file, json.encodeToString(ReferenceProfile.serializer(), p))
+        return ProfileImportResult(p, alreadyPresent = false)
+    }
+
+    /** Imported profiles, every version, sorted by name, id and version. */
+    fun importedProfiles(): List<ReferenceProfile> = File(root, PROFILES).listFiles { f -> f.extension == "json" }.orEmpty()
+        .map { json.decodeFromString(ReferenceProfile.serializer(), it.readText()) }
+        .sortedWith(compareBy({ it.name }, { it.id }, { it.version }))
+
+    /** Everything but when and from which file name it was imported. */
+    private fun sameDeclaration(a: ReferenceProfile, b: ReferenceProfile): Boolean {
+        val ca = (a.source as? ProfileSource.Imported)?.citation
+        val cb = (b.source as? ProfileSource.Imported)?.citation
+        return ca == cb && a.copy(source = b.source) == b
+    }
+
+    private fun profileFile(id: String, version: Int) = File(root, "$PROFILES/${safe(id)}-v$version.json")
 
     fun setRoomArchived(roomId: String, archived: Boolean): Room {
         val room = requireNotNull(room(roomId)) { "No room $roomId" }
@@ -280,5 +380,6 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     private companion object {
         const val TRASH = "trash"
         const val STAGING = "import-staging"
+        const val PROFILES = "reference-profiles"
     }
 }

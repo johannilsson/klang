@@ -46,7 +46,7 @@ core/               Separate Gradle build, pure Kotlin/JVM — no Android SDK ne
   dsp/              Octave filters, impulse detection, Schroeder/truncation, T20/EDT fits, quality gates
   sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export, import
   cli/              klang-analyse: analyse WAV files on a desktop
-docs/               DSP method, export schema, validation plan, generated synthetic results
+docs/               DSP method, export schema, reference profiles, summaries, attempt report, signing, validation plan, synthetic results
 scripts/            analyse_export.py: summarise an export ZIP and re-analyse its recordings
 CLAUDE.md           notes for Claude: build/test/run steps, sandbox gotchas, rules that must not be broken
 ```
@@ -66,6 +66,7 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
 
 # Android (needs the Android SDK; open the root folder in Android Studio, or:)
 ./gradlew :app:assembleDebug
+# Builds are signed with the shared key when KLANG_KEY* variables are set (docs/signing.md)
 ```
 
 ## Using the app
@@ -90,6 +91,11 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    each clap's peak with plain feedback (too loud / good / quiet) and saves nothing, to find your
    distance before recording. The suggested 1.5–2 m start distance is not validated: use the meter. Every attempt is saved and analysed straight away. Rejected attempts are
    kept, with their reasons and advice (never "clap harder"), and can be deleted.
+   Each recording is a row with a verdict (usable, usable with caution, not usable), why it failed or its T20
+   values, and a small graph of the recording. Opening it shows the verdict, a graph of the recording with the
+   clap, the background and any other sound marked, each problem once with its advice, and the bands
+   ([docs/attempt-report.md](docs/attempt-report.md)).
+
 5. **Compare** shows matched positions band by band: every usable attempt, medians and IQRs,
    absolute and percentage change, valid/attempted counts, configuration warnings, and a verdict.
    Without a repeat baseline, or when the configurations differ, the verdict is *Change is
@@ -113,6 +119,14 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    deleted. Recordings and analysis results are never edited. Nothing can be edited while a
    recording, re-analysis or import runs.
 
+10. **Summaries and target**: the Session and Compare screens start with a summary in plain words (how
+   long sound takes to die away, which bands could not be measured and why, recording quality, what
+   usually helps); the numbers are behind *Show the numbers*. *Target…* in the room's menu sets what the
+   room is used for, a target (suggested UK school guidance from BB93, an imported reference profile, or
+   your own value) and an optional volume, which adds a rough Sabine estimate of the absorbing area
+   needed. A target only describes results ([reference-profiles.md](docs/reference-profiles.md),
+   [summaries.md](docs/summaries.md)).
+
 ## Design notes
 
 * **Capture**: `AudioRecord`, mono, 48 kHz PCM float preferred (then PCM16, then 44.1 kHz). The
@@ -135,6 +149,16 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
   *Export* and *Import* to keep or move data: an export ZIP holds every result and the original WAVs.
 * **Comparison**: a descriptive, versioned rule, not a significance test. There are no confidence
   percentages and no combined room score.
+
+## Licences and attribution
+
+The built-in reverberation targets come from UK Building Bulletin 93, Table 6, verified against the
+published PDF ([docs/reference-profiles.md](docs/reference-profiles.md)). Its licence asks for this
+attribution, which the app also shows under *About and licences* in the Home menu:
+
+> Contains public sector information licensed under the Open Government Licence v3.0. Acoustic targets derived from Building Bulletin 93 (BB93): Acoustic design of schools: performance standards, February 2015, published by the Department for Education. © Crown copyright 2015.
+
+Licence: https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/
 
 ## Later extensions (not implemented)
 

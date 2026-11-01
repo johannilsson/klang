@@ -3,6 +3,8 @@ package se.klang.app
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -31,21 +33,32 @@ import se.klang.dsp.WavEncoding
 import se.klang.dsp.WavFormatException
 import se.klang.sessions.AnalysisRecord
 import se.klang.sessions.AnalysisService
+import se.klang.sessions.AttemptReport
+import se.klang.sessions.AttemptReporter
 import se.klang.sessions.AudioConfiguration
 import se.klang.sessions.AttemptKind
 import se.klang.sessions.CaptureAttempt
 import se.klang.sessions.CaptureEvent
 import se.klang.sessions.Comparator
 import se.klang.sessions.Comparison
+import se.klang.sessions.ComparisonText
 import se.klang.sessions.Exporter
 import se.klang.sessions.ImportException
 import se.klang.sessions.Importer
+import se.klang.sessions.ProfileImportException
+import se.klang.sessions.ProfileSelection
 import se.klang.sessions.Records
+import se.klang.sessions.RecordingTimeline
+import se.klang.sessions.ReferenceProfile
+import se.klang.sessions.ReferenceProfileFile
 import se.klang.sessions.Room
 import se.klang.sessions.RoomConditions
+import se.klang.sessions.RoomUse
 import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
 import se.klang.sessions.SessionStore
+import se.klang.sessions.SessionSummary
+import se.klang.sessions.Summarizer
 import java.io.File
 import java.io.IOException
 
@@ -55,6 +68,8 @@ sealed interface Screen {
     data object Capability : Screen
     data class RoomDetail(val roomId: String) : Screen
     data class SessionDetail(val sessionId: String) : Screen
+    /** The detailed plain-language summary of a session: band diagrams, target, hints. */
+    data class SessionSummary(val sessionId: String) : Screen
     data class AttemptDetail(val sessionId: String, val attemptId: String) : Screen
     data class Compare(val roomId: String) : Screen
 }
@@ -71,6 +86,10 @@ sealed interface Sheet {
     data class EditRoom(val roomId: String) : Sheet
     data class EditPosition(val roomId: String, val positionId: String) : Sheet
     data class EditSession(val sessionId: String) : Sheet
+    /** The room's reverberation target: use, suggested or own value, optional volume (#26, #27). */
+    data class Target(val roomId: String) : Sheet
+    /** Licences and attributions (OGL v3.0 for the BB93 targets). */
+    data object About : Sheet
 }
 
 sealed interface CaptureUi {
@@ -111,7 +130,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     var capture by mutableStateOf<CaptureUi>(CaptureUi.Idle)
-        private set
+        @VisibleForTesting internal set
 
     val isCapturing: Boolean
         get() = capture.let {
@@ -283,7 +302,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     var testCapture by mutableStateOf<TestCapture?>(null)
-        private set
+        @VisibleForTesting internal set
 
     /** Same flow as a real attempt (countdown, 1.5 s quiet, clap, decay), analysed but not saved to a session. */
     fun runTestCapture() {
@@ -453,6 +472,90 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------------------------------------------------------------- recording timeline and report
+
+    private val timelines = java.util.concurrent.ConcurrentHashMap<String, RecordingTimeline>()
+
+    /** The analysis a screen shows for an attempt: the current algorithm version's, else the latest. */
+    fun analysisFor(a: CaptureAttempt): AnalysisRecord? = a.analysis(analysisConfig.version) ?: a.latestAnalysis()
+
+    /**
+     * The level-over-time of a recording, read from its WAV off the main thread and cached for the session of
+     * the app (a re-analysis changes the key). Null when the file cannot be read.
+     */
+    suspend fun timeline(a: CaptureAttempt): RecordingTimeline? = withContext(Dispatchers.IO) {
+        val analysis = analysisFor(a)
+        val key = "${a.id}:${a.analyses.size}"
+        timelines[key]?.let { return@withContext it }
+        try {
+            val signal = Wav.read(store.recordingFile(a).readBytes()).signal
+            RecordingTimeline.of(signal.samples, signal.sampleRate, analysis).also { timelines[key] = it }
+        } catch (e: IOException) {
+            null
+        } catch (e: WavFormatException) {
+            null
+        }
+    }
+
+    /** What to say about one recording (verdict, grouped findings), from its stored analysis. */
+    fun report(a: CaptureAttempt, timeline: RecordingTimeline? = null): AttemptReport =
+        AttemptReporter.report(analysisFor(a), a.captureEvents, timeline)
+
+    // ---------------------------------------------------------------- summaries & targets (#26, #27)
+
+    private val summarizer = Summarizer()
+
+    /** Plain-language summary of a session against the room's target. Pure text rules, no I/O beyond reading the store. */
+    fun sessionSummary(sessionId: String): SessionSummary? {
+        val s = store.session(sessionId) ?: return null
+        val room = store.room(s.roomId) ?: return null
+        return summarizer.session(room, s, store.attempts(sessionId), analysisConfig.version)
+    }
+
+    fun comparisonText(roomId: String, c: Comparison): ComparisonText? {
+        val room = store.room(roomId) ?: return null
+        return summarizer.comparison(c, room, store.sessions(roomId))
+    }
+
+    fun importedProfiles(): List<ReferenceProfile> = store.importedProfiles()
+
+    /**
+     * Saves the room's use, volume and target. [ownSeconds] (when the user chose "my own value"; with [ownLowerSeconds] a range)
+     * becomes a new version of the room's "your target" profile if the value changed.
+     */
+    fun saveRoomTarget(roomId: String, use: RoomUse?, volumeCubicMetres: Double?, selected: ReferenceProfile?, ownSeconds: Double?, ownLowerSeconds: Double? = null): Boolean = edit {
+        val profile = ownSeconds?.let { store.userProfile(roomId, it, ownLowerSeconds) } ?: selected
+        store.updateRoomTarget(roomId, use, volumeCubicMetres, profile?.let(ProfileSelection::of))
+    }
+
+    /** Result of importing a reference profile file, shown in the target sheet. */
+    var profileImportMessage by mutableStateOf<String?>(null)
+
+    /** Reads a `klang.reference-profile` file chosen in the system file picker. Nothing is stored on any error. */
+    fun importProfile(uri: Uri) {
+        viewModelScope.launch {
+            profileImportMessage = withContext(Dispatchers.IO) {
+                val app = getApplication<Application>()
+                try {
+                    val name = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                        ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: "profile.json"
+                    val bytes = app.contentResolver.openInputStream(uri)?.use { readAtMost(it, ReferenceProfileFile.MAX_BYTES + 1) }
+                        ?: return@withContext "Could not open the selected file."
+                    val r = store.importProfile(bytes, name)
+                    if (r.alreadyPresent) "“${r.profile.name}” (version ${r.profile.version}) was already imported; nothing changed."
+                    else "Imported “${r.profile.name}” (version ${r.profile.version}). Select it below to use it."
+                } catch (e: ProfileImportException) {
+                    "${e.message} Nothing was imported."
+                } catch (e: SecurityException) {
+                    "No permission to read the selected file. Nothing was imported."
+                } catch (e: IOException) {
+                    "Could not read the file: ${e.message}. Nothing was imported."
+                }
+            }
+            changed()
+        }
+    }
+
     // ---------------------------------------------------------------- compare & export
 
     fun compare(roomId: String, baselineId: String, treatmentId: String, repeatId: String?): Comparison? {
@@ -469,7 +572,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Builds the export ZIP in app-private cache and returns a share intent (system share sheet). */
     suspend fun exportRoom(roomId: String, comparisons: List<Comparison>): Intent = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
-        val exporter = Exporter(store, BuildConfig.VERSION_NAME)
+        val exporter = Exporter(store, BuildConfig.VERSION_NAME, analysisConfig.version)
         val dir = exportDir.apply { mkdirs() }
         ExportCache.prune(dir)
         val file = File(dir, "klang-export-${System.currentTimeMillis()}.zip")
@@ -523,6 +626,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissImportOutcome() { importOutcome = null }
 
     companion object {
+        /** Reads up to [limit] bytes (InputStream.readNBytes needs API 33). */
+        internal fun readAtMost(input: java.io.InputStream, limit: Int): ByteArray {
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            while (out.size() < limit) {
+                val n = input.read(buf, 0, minOf(buf.size, limit - out.size()))
+                if (n < 0) break
+                out.write(buf, 0, n)
+            }
+            return out.toByteArray()
+        }
+
         const val PRE_ROLL_SECONDS = 1.5
         const val COUNTDOWN_SECONDS = 3
         const val RECORD_SECONDS = 5.0

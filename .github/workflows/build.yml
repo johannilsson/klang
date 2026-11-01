@@ -7,6 +7,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Shared signing key (docs/signing.md), so CI builds upgrade the installed app. Secrets are empty for pull
+    # requests from forks; the build then falls back to the default debug key.
+    env:
+      KLANG_KEYSTORE_BASE64: ${{ secrets.KLANG_KEYSTORE_BASE64 }}
+      KLANG_KEYSTORE_PASSWORD: ${{ secrets.KLANG_KEYSTORE_PASSWORD }}
+      KLANG_KEY_ALIAS: ${{ secrets.KLANG_KEY_ALIAS }}
+      KLANG_KEY_PASSWORD: ${{ secrets.KLANG_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -29,6 +36,11 @@ jobs:
       - name: App test summary
         if: always()
         run: python3 .github/scripts/junit_summary.py --title='App unit tests' 'app/build/test-results/testDebugUnitTest/*.xml'
+
+      - name: Show which key signed the APK
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA-256|DN" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v7

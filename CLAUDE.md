@@ -49,13 +49,22 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   `sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"`
   (compileSdk 37; AGP downloads any other build-tools it needs) and write `sdk.dir=<absolute $HOME/android-sdk>`
   to `local.properties` (gitignored; in each git worktree too).
-- **Maven Central rate-limits with HTTP 429** from this sandbox, often on the first build after a change in
-  dependencies. It is transient: retry with backoff (15 s, 30 s, 45 s…), e.g. loop the Gradle command while
-  its output contains `429`. A 429 is not a build failure in the code.
+- **Maven Central rate-limits with HTTP 429** from this sandbox (both `repo.maven.apache.org` and
+  `repo1.maven.org`). The builds therefore resolve from Google's public mirror of Maven Central first
+  (`maven-central.storage-download.googleapis.com`, in both `settings.gradle.kts` files, before the plugin
+  portal, which redirects to Maven Central), with `mavenCentral()` as the fallback; Robolectric's android-all
+  download uses the same mirror (`robolectric.dependency.repo.url` in `app/build.gradle.kts`). A 429 is not a
+  build failure in the code: if one still appears (an artifact the mirror lacks), retry with backoff
+  (15 s, 30 s, 45 s…). Keep any new repository behind the mirror.
 - The build runs on **JDK 21** (LTS), in the sandbox and in CI. The code is still compiled to Java 17 bytecode
   (`jvmTarget` 17), so the app and `klang-analyse` run on Java 17+. JDK 21 is a requirement, not a preference:
   Robolectric's Android SDK 36 runtime (app unit tests) refuses to start on older Java. Do not move CI to a
   non-LTS JDK, and try a newer LTS locally before changing CI.
+- **Signing**: builds are signed with a shared key from the environment variables `KLANG_KEYSTORE_BASE64`,
+  `KLANG_KEYSTORE_PASSWORD`, `KLANG_KEY_ALIAS`, `KLANG_KEY_PASSWORD` (docs/signing.md), so the APK can upgrade
+  the one on the user's phone. Without them the build uses the default debug key, which cannot upgrade a build
+  signed with another key: say so when you hand over an APK, and check it with `apksigner verify --print-certs`.
+  Never create or print the real key, and never commit one; bump `versionCode` for every APK the user will install.
 - Unzip user-provided exports into a **new** directory and never `rm -rf` (the safety check blocks it, and it
   is not needed).
 - **Parallel agents in git worktrees** may start from an old commit, not from your branch. Tell each agent to

@@ -2,6 +2,7 @@ package se.klang.sessions
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import se.klang.dsp.AnalysisConfiguration
 import java.io.OutputStream
 import java.time.Instant
 import java.util.Locale
@@ -20,6 +21,20 @@ data class ExportDocument(
     val room: Room,
     val sessions: List<ExportedSession>,
     val comparisons: List<Comparison> = emptyList(),
+    /**
+     * The room's selected reference profile and its "your target" profile, in full, with their
+     * source labels (built in with citation, entered by the user, or imported with the citation the
+     * file declares). Additive within schema version 1.
+     */
+    val referenceProfiles: List<ReferenceProfile> = emptyList(),
+    /**
+     * The plain-language summaries (#26) as the app showed them: one per session, one per exported
+     * comparison. Each records its summary policy version, algorithm version and reference profile
+     * (id, version). Additive within schema version 1; never read back by import.
+     */
+    val summaries: ExportedSummaries? = null,
+    /** Attributions the data in this export requires (OGL v3.0 for built-in BB93 profiles). Additive within schema version 1. */
+    val attributions: List<String> = emptyList(),
 ) {
     companion object {
         const val SCHEMA = "klang.export"
@@ -42,6 +57,13 @@ data class ExportDocument(
 @Serializable
 data class ExportedSession(val session: Session, val attempts: List<CaptureAttempt>)
 
+@Serializable
+data class ExportedSummaries(
+    val policyVersion: String,
+    val sessions: List<SessionSummary>,
+    val comparisons: List<ComparisonText> = emptyList(),
+)
+
 /**
  * Writes a ZIP with:
  *  - results.json  — [ExportDocument], every attempt with all of its analyses and curves
@@ -49,13 +71,32 @@ data class ExportedSession(val session: Session, val attempts: List<CaptureAttem
  *  - comparison.csv — one row per compared cell (if comparisons are included)
  *  - recordings/<session>/<attempt>.wav — the original recordings, byte for byte
  */
-class Exporter(private val store: SessionStore, private val appVersion: String) {
+class Exporter(
+    private val store: SessionStore,
+    private val appVersion: String,
+    /** The algorithm version the summaries describe (the app's current one). */
+    private val algorithmVersion: String = AnalysisConfiguration().version,
+    private val summaryPolicy: SummaryPolicy = SummaryPolicy(),
+) {
     private val json = Json { prettyPrint = true; encodeDefaults = true }
 
     fun document(roomId: String, comparisons: List<Comparison> = emptyList(), now: Long = System.currentTimeMillis()): ExportDocument {
         val room = requireNotNull(store.room(roomId)) { "No room $roomId" }
         val sessions = store.sessions(roomId).map { ExportedSession(it, store.attempts(it.id)) }
-        return ExportDocument(exportedAtEpochMs = now, appVersion = appVersion, room = room, sessions = sessions, comparisons = comparisons)
+        val profiles = listOfNotNull(room.target?.resolve(), room.userProfile).distinctBy { it.id to it.version }
+        val summarizer = Summarizer(summaryPolicy)
+        val summaries = ExportedSummaries(
+            policyVersion = summaryPolicy.version,
+            sessions = sessions.map { summarizer.session(room, it.session, it.attempts, algorithmVersion) },
+            comparisons = comparisons.map { summarizer.comparison(it, room, sessions.map { s -> s.session }) },
+        )
+        return ExportDocument(
+            exportedAtEpochMs = now, appVersion = appVersion, room = room, sessions = sessions,
+            comparisons = comparisons, referenceProfiles = profiles, summaries = summaries,
+            attributions = if (profiles.any { it.source is ProfileSource.BuiltIn }) {
+                listOf("${BuiltInProfiles.BB93_ATTRIBUTION} Licence: ${BuiltInProfiles.OGL_URL}")
+            } else emptyList(),
+        )
     }
 
     fun writeZip(doc: ExportDocument, out: OutputStream) {

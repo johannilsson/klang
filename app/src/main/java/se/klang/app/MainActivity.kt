@@ -39,6 +39,7 @@ import se.klang.app.ui.screens.CompareScreen
 import se.klang.app.ui.screens.HomeScreen
 import se.klang.app.ui.screens.RoomScreen
 import se.klang.app.ui.screens.SessionScreen
+import se.klang.app.ui.screens.SessionSummaryScreen
 import se.klang.app.ui.screens.SheetHost
 import se.klang.app.ui.screens.TopBarMenu
 import se.klang.app.ui.theme.KlangTheme
@@ -121,6 +122,7 @@ fun KlangApp(vm: AppViewModel) {
                 Screen.Capability -> CapabilityScreen(vm, m)
                 is Screen.RoomDetail -> RoomScreen(vm, target.roomId, m)
                 is Screen.SessionDetail -> SessionScreen(vm, target.sessionId, m)
+                is Screen.SessionSummary -> SessionSummaryScreen(vm, target.sessionId, m)
                 is Screen.AttemptDetail -> AttemptScreen(vm, target.sessionId, target.attemptId, m)
                 is Screen.Compare -> CompareScreen(vm, target.roomId, m)
             }
@@ -153,6 +155,7 @@ private fun titleFor(vm: AppViewModel, s: Screen): String = when (s) {
     Screen.Capability -> "Microphone check"
     is Screen.RoomDetail -> vm.room(s.roomId)?.name ?: "Room"
     is Screen.SessionDetail -> vm.session(s.sessionId)?.name ?: "Session"
+    is Screen.SessionSummary -> "In plain words"
     is Screen.AttemptDetail ->
         if (vm.attempts(s.sessionId).firstOrNull { it.id == s.attemptId }?.kind == se.klang.sessions.AttemptKind.BACKGROUND) "Background" else "Attempt"
     is Screen.Compare -> "Compare sessions"

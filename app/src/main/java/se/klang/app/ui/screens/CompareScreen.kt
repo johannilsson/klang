@@ -16,11 +16,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -65,6 +67,7 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
     }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var showCounts by rememberSaveable { mutableStateOf(false) }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -97,26 +100,36 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
                     comparison.configurationWarnings.forEach { Text("⚠ $it", style = MaterialTheme.typography.bodySmall) }
                 }
             }
-            item {
-                val t = sessions.firstOrNull { it.id == treatment }
-                SectionCard("Summary") {
-                    t?.let { Text("Treatment: ${it.intervention}") }
-                    comparison.summary.cellsByVerdict.filter { it.value > 0 }.forEach { (v, n) -> Text("$n × ${verdictLabel(v)}") }
-                    Text(comparison.summary.definition, style = MaterialTheme.typography.bodySmall)
+            vm.comparisonText(roomId, comparison)?.let { text ->
+                item(key = "plain") {
+                    // Each position's row has its own "Show every band and attempt", which opens its plot and bands there.
+                    ComparisonSummaryCards(text) { positionId ->
+                        val cells = comparison.cells.filter { it.positionId == positionId }
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ComparisonPlot(cells)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("● before (baseline)", color = BaselineColor, style = MaterialTheme.typography.labelSmall)
+                                Text("● after (treatment)", color = TreatmentColor, style = MaterialTheme.typography.labelSmall)
+                                Text("— median", style = MaterialTheme.typography.labelSmall)
+                            }
+                            cells.forEach { CellRow(it) }
+                        }
+                    }
                 }
             }
-            room.positions.forEach { p ->
-                val cells = comparison.cells.filter { it.positionId == p.id }
-                if (cells.isEmpty()) return@forEach
-                item(key = p.id) {
-                    SectionCard(p.name) {
-                        ComparisonPlot(cells)
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("● before (baseline)", color = BaselineColor, style = MaterialTheme.typography.labelSmall)
-                            Text("● after (treatment)", color = TreatmentColor, style = MaterialTheme.typography.labelSmall)
-                            Text("— median", style = MaterialTheme.typography.labelSmall)
+            item(key = "counts") {
+                // Folded away: it repeats the headline in a more technical form.
+                Column {
+                    TextButton(onClick = { showCounts = !showCounts }) {
+                        Text(if (showCounts) "Hide how the verdicts were counted" else "How the verdicts were counted")
+                    }
+                    if (showCounts) {
+                        val t = sessions.firstOrNull { it.id == treatment }
+                        SectionCard("How the verdicts were counted") {
+                            t?.let { Text("Treatment: ${it.intervention}") }
+                            comparison.summary.cellsByVerdict.filter { it.value > 0 }.forEach { (v, n) -> Text("$n × ${verdictLabel(v)}") }
+                            Text(comparison.summary.definition, style = MaterialTheme.typography.bodySmall)
                         }
-                        cells.forEach { CellRow(it) }
                     }
                 }
             }

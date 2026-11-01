@@ -2,11 +2,12 @@ package se.klang.app.ui
 
 import android.app.Application
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -19,6 +20,7 @@ import org.robolectric.annotation.Config
 import se.klang.app.AppViewModel
 import se.klang.app.TestFixtures
 import se.klang.app.ui.screens.AttemptScreen
+import se.klang.app.ui.screens.CapabilityScreen
 import se.klang.app.ui.screens.SessionScreen
 import se.klang.sessions.RoomConditions
 import se.klang.sessions.SessionKind
@@ -52,20 +54,35 @@ class InvalidBandUiTest {
     }
 
     @Test
-    fun attemptScreenShowsReasonInsteadOfTheInvalidBandsNumber() {
+    fun attemptScreenShowsTheVerdictAndNoNumberForTheInvalidBand() {
         compose.setContent { AttemptScreen(vm, sessionId, attemptId) }
-        compose.onNodeWithText("T20 0.62 s").assertExists()
+        compose.onNodeWithText("Not usable: the room was too noisy").assertExists()
+        compose.onNodeWithContentDescription("500 Hz, not measured").assertExists()
+        compose.onNodeWithContentDescription("1000 Hz, 0.62 seconds").assertExists()
+        compose.onAllNodesWithText("0.87", substring = true, useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("0.87", substring = true).assertCountEquals(0)
+        // The band's own reason is behind its row.
+        compose.onNodeWithContentDescription("500 Hz, not measured").performClick()
         compose.onNodeWithText("• ${TestFixtures.INVALID_REASON}").assertExists()
-        compose.onAllNodesWithText("0.87", substring = true).assertCountEquals(0)
-        compose.onAllNodesWithText("T20 — s").assertCountEquals(1)
+        compose.onAllNodesWithText("0.87", substring = true, useUnmergedTree = true).assertCountEquals(0)
     }
 
     @Test
-    fun sessionListShowsNoValueForTheInvalidBand() {
+    fun sessionListShowsAVerdictAndNoValueForTheInvalidBand() {
         compose.setContent { SessionScreen(vm, sessionId) }
-        compose.onNodeWithContentDescription("500 Hz, Invalid").assertExists()
-        compose.onNodeWithContentDescription("1000 Hz, Valid, 0.62 seconds").assertExists()
+        compose.onNodeWithContentDescription("Clap 1, Not usable.", substring = true).assertExists()
         compose.onAllNodesWithContentDescription("0.87", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("0.87", substring = true, useUnmergedTree = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun capabilityTestCaptureShowsTheVerdictTheGroupedProblemAndNoStaleValue() {
+        val record = TestFixtures.recordWithInvalidBand()
+        vm.testCapture = AppViewModel.TestCapture(FloatArray(0), TestFixtures.RATE, TestFixtures.audioConfiguration(), emptyList(), record)
+        compose.setContent { CapabilityScreen(vm) }
+        compose.onNodeWithText("Not usable: the room was too noisy").assertExists()
+        compose.onNodeWithText("500\u00A0Hz could not be measured.").assertExists()
+        compose.onNodeWithText("T20 0.62 s · margin — dB").assertExists()
+        compose.onAllNodesWithText("0.87", substring = true).assertCountEquals(0)
     }
 }

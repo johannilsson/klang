@@ -21,6 +21,19 @@ data class Room(
     val archived: Boolean = false,
     /** Last edit of the name, notes or position list (add, reorder, delete); null if never edited. */
     val updatedAtEpochMs: Long? = null,
+    /** What the room is used for; picks the suggested targets (#26). Never changes a result. */
+    val use: RoomUse? = null,
+    /** Optional room volume, m³, for volume-dependent targets and absorption estimates. */
+    val volumeCubicMetres: Double? = null,
+    /** The reverberation target results are described against (#27); null = none. */
+    val target: ProfileSelection? = null,
+    /**
+     * The latest "your target" (USER) profile of this room, kept even when another target is
+     * selected, so its version keeps counting up and an (id, version) never names two values.
+     */
+    val userProfile: ReferenceProfile? = null,
+    /** Last change of [use], [volumeCubicMetres] or [target]; null if never set. */
+    val targetUpdatedAtEpochMs: Long? = null,
 )
 
 /** A named microphone position, e.g. "Seat by window". Results are never generalised beyond it. */

@@ -38,7 +38,6 @@ import se.klang.app.ui.theme.InvalidColor
 import se.klang.app.ui.theme.QuestionableColor
 import se.klang.app.ui.theme.ValidColor
 import se.klang.dsp.QualityState
-import se.klang.dsp.ReasonCode
 import se.klang.sessions.BandRecord
 import se.klang.sessions.Curve
 import se.klang.sessions.Fit
@@ -59,6 +58,14 @@ fun fmt(v: Double?, digits: Int = 2): String = v?.let { String.format(Locale.ROO
  */
 fun displayedT20(b: BandRecord): Fit? = if (b.state == QualityState.INVALID) null else b.t20
 
+private val NUMBER_UNIT = Regex("(\\d) (s|Hz|dB|m²|m³|%)(?![\\p{L}\\d])")
+
+/**
+ * Keeps a number and its unit on one line ("0.7 s", "500 Hz") by joining them with a no-break space, so a
+ * headline never wraps as "0.7" / "s". Display only: the generated texts (and the export) keep plain spaces.
+ */
+fun String.keepUnits(): String = replace(NUMBER_UNIT, "$1\u00A0$2")
+
 fun stateColor(s: QualityState): Color = when (s) {
     QualityState.VALID -> ValidColor
     QualityState.QUESTIONABLE -> QuestionableColor
@@ -69,22 +76,6 @@ fun stateLabel(s: QualityState): String = when (s) {
     QualityState.VALID -> "Valid"
     QualityState.QUESTIONABLE -> "Questionable"
     QualityState.INVALID -> "Invalid"
-}
-
-/** Practical advice per reason. Never suggests clapping harder. */
-fun advice(code: ReasonCode): String? = when (code) {
-    ReasonCode.CLIPPING, ReasonCode.FULL_SCALE_SAMPLE, ReasonCode.NEAR_FULL_SCALE, ReasonCode.FLAT_TOP ->
-        "Too loud for the microphone. Clap less hard or stand a little further from the phone."
-    ReasonCode.INSUFFICIENT_SNR_MARGIN, ReasonCode.INSUFFICIENT_DECAY_RANGE ->
-        "Background too loud for this band. Turn off fans, the dishwasher or the extractor; do not clap harder."
-    ReasonCode.ADDITIONAL_IMPULSE, ReasonCode.BACKGROUND_TRANSIENT ->
-        "Another sound was picked up. Clap once, then stay still and quiet until recording ends."
-    ReasonCode.INSUFFICIENT_PRE_ROLL -> "Wait for the \"Clap now\" prompt before clapping."
-    ReasonCode.INSUFFICIENT_TAIL -> "Clap promptly when asked so the decay fits in the recording."
-    ReasonCode.CAPTURE_DISCONTINUITY, ReasonCode.DROPOUT ->
-        "The recording was disturbed (audio route change, interruption or dropped samples). Try again without touching the phone."
-    ReasonCode.NO_IMPULSE_FOUND -> "No clap detected. Clap once, clearly, after the prompt."
-    else -> null
 }
 
 @Composable
