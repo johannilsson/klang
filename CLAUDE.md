@@ -94,10 +94,13 @@ were the recording (taps in the pre-roll, no headroom, ambient noise, late movem
 - Example values may appear in UI previews only, visibly marked as examples.
 - Keep the synthetic tests as engineering checks. Do not present their accuracy as real-room accuracy.
 - **Reference data only from public, freely readable sources.** Target values, guide ranges, formulas and
-  coefficients the app builds on must come from documents anyone can read for free (e.g. UK Building
+  coefficients the app ships must come from documents anyone can read for free (e.g. UK Building
   Bulletin 93, Open Government Licence; public-domain physics such as Sabine's formula), cited in `docs/`
-  with title, edition, table/section and URL. Never paid standards (DIN, SS, ISO, ANSI unless the
-  publisher offers it free), never values from memory: verify against the source first.
+  with title, edition, table/section and URL, and verified against the source, never from memory.
+  **Closed sources** (paid standards such as DIN, SS, ISO, or ANSI unless its publisher offers it free) may
+  inform the data model's structure (e.g. targets that depend on volume, per-band tolerances, room-use
+  groups), never the values in the repo or the app. Other data comes in only as user-entered or imported
+  reference profiles (#27), labelled as such.
 
 ## Conventions
 
