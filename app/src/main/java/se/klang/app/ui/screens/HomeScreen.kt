@@ -2,6 +2,8 @@ package se.klang.app.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -18,6 +21,7 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -28,7 +32,8 @@ import se.klang.app.ui.FabScreenPadding
 @Composable
 fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
-    val rooms = vm.rooms()
+    val allRooms = vm.rooms()
+    val rooms = allRooms.filter { vm.showArchivedRooms || !it.archived }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -44,7 +49,13 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (rooms.isEmpty()) {
+        if (vm.importing) item {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("Importing…", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        if (allRooms.isEmpty()) {
             // Before the first room, point to the microphone check. Afterwards it lives in the top-bar menu.
             item {
                 Card(
@@ -67,6 +78,14 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        } else if (rooms.isEmpty()) {
+            item {
+                Text(
+                    "All rooms are archived. Show them from the ⋮ menu, or tap New room.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         } else {
             item { SectionHeader("Rooms") }
             item {
@@ -75,7 +94,9 @@ fun HomeScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                         if (i > 0) HorizontalDivider(Modifier.padding(start = 16.dp))
                         ListItem(
                             headlineContent = { Text(room.name) },
-                            supportingContent = { Text("${room.positions.size} positions · ${vm.sessions(room.id).size} sessions") },
+                            supportingContent = {
+                                Text((if (room.archived) "Archived · " else "") + "${room.positions.size} positions · ${vm.sessions(room.id).size} sessions")
+                            },
                             trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable { vm.navigate(Screen.RoomDetail(room.id)) },

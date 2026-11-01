@@ -39,6 +39,7 @@ import se.klang.app.ui.theme.QuestionableColor
 import se.klang.app.ui.theme.ValidColor
 import se.klang.dsp.QualityState
 import se.klang.dsp.ReasonCode
+import se.klang.sessions.BandRecord
 import se.klang.sessions.Curve
 import se.klang.sessions.Fit
 import java.util.Locale
@@ -51,6 +52,12 @@ val ScreenPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom
 val FabScreenPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp)
 
 fun fmt(v: Double?, digits: Int = 2): String = v?.let { String.format(Locale.ROOT, "%.${digits}f", it) } ?: "—"
+
+/**
+ * The T20 fit a band may show. An invalid band shows its reasons, never a number, even if a stored
+ * record (e.g. imported or from an older build) carries a fit.
+ */
+fun displayedT20(b: BandRecord): Fit? = if (b.state == QualityState.INVALID) null else b.t20
 
 fun stateColor(s: QualityState): Color = when (s) {
     QualityState.VALID -> ValidColor

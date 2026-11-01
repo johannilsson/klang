@@ -1,18 +1,17 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
 android {
     namespace = "se.klang.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "se.klang.app"
         // 29: AudioRecord.getActiveRecordingConfiguration() and isClientSilenced() for capture diagnostics.
         minSdk = 29
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
 
@@ -35,6 +34,16 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+    testOptions {
+        unitTests {
+            // Robolectric and Compose UI tests on the JVM need the merged resources and manifest.
+            isIncludeAndroidResources = true
+            all {
+                // Robolectric's SDK 36 runtime sets FileDescriptor internals through jdk.internal.access.
+                it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+            }
+        }
     }
 }
 
@@ -60,6 +69,10 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.core)
     testImplementation(libs.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.ui.test.junit4)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

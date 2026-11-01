@@ -82,7 +82,49 @@ data class Comparison(
     val configurationWarnings: List<String>,
     val cells: List<ComparisonCell>,
     val summary: ComparisonSummary,
+    /**
+     * Sessions in this comparison with impulse attempts that have no analysis at [algorithmVersion].
+     * Those attempts count as NOT_ANALYSED; versions are never mixed. Empty when every attempt is covered.
+     */
+    val staleAnalyses: List<AnalysisCoverage> = emptyList(),
 )
+
+/**
+ * Which of a session's impulse attempts have an analysis at one algorithm version. Used to prompt a
+ * re-analysis (which appends a result) instead of comparing attempts analysed with different versions.
+ */
+@Serializable
+data class AnalysisCoverage(
+    val sessionId: String,
+    val sessionName: String,
+    /** The version coverage was checked against. */
+    val algorithmVersion: String,
+    val impulseAttempts: Int,
+    /** Impulse attempts with no analysis at [algorithmVersion]. */
+    val missing: Int,
+    /** Among [missing]: the newest version each attempt was analysed with (usually older) → number of attempts. */
+    val otherVersions: Map<String, Int> = emptyMap(),
+    /** Among [missing]: attempts with no analysis at all. */
+    val neverAnalysed: Int = 0,
+) {
+    companion object {
+        fun of(session: Session, attempts: List<CaptureAttempt>, algorithmVersion: String): AnalysisCoverage {
+            val impulses = attempts.filter { it.kind == AttemptKind.IMPULSE }
+            val missing = impulses.filter { it.analysis(algorithmVersion) == null }
+            val other = missing.mapNotNull { it.latestAnalysis()?.algorithmVersion }
+                .groupingBy { it }.eachCount().toSortedMap()
+            return AnalysisCoverage(
+                sessionId = session.id,
+                sessionName = session.name,
+                algorithmVersion = algorithmVersion,
+                impulseAttempts = impulses.size,
+                missing = missing.size,
+                otherVersions = other,
+                neverAnalysed = missing.count { it.analyses.isEmpty() },
+            )
+        }
+    }
+}
 
 /**
  * How a before/after change is judged. Versioned; a descriptive rule, not a significance test.
@@ -144,6 +186,9 @@ class Comparator(private val policy: ComparisonPolicy = ComparisonPolicy()) {
                 "Count of matched (position, octave band) cells by verdict. Bands are not averaged or weighted; " +
                     "cells with missing data are counted as INSUFFICIENT_DATA, not dropped.",
             ),
+            staleAnalyses = listOfNotNull(baseline to baselineAttempts, treatment to treatmentAttempts, repeatBaseline?.let { it to repeatAttempts })
+                .map { (s, attempts) -> AnalysisCoverage.of(s, attempts, algorithmVersion) }
+                .filter { it.missing > 0 },
         )
     }
 

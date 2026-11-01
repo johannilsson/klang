@@ -17,6 +17,10 @@ data class Room(
     val notes: String = "",
     val createdAtEpochMs: Long,
     val positions: List<MeasurementPosition> = emptyList(),
+    /** Hidden from lists; all data kept. Deletion is a separate, explicit step. */
+    val archived: Boolean = false,
+    /** Last edit of the name, notes or position list (add, reorder, delete); null if never edited. */
+    val updatedAtEpochMs: Long? = null,
 )
 
 /** A named microphone position, e.g. "Seat by window". Results are never generalised beyond it. */
@@ -31,6 +35,11 @@ data class MeasurementPosition(
      * Part of the position (not the session) so every session repeats the same source location.
      */
     val clapSpot: String = "",
+    /**
+     * Last edit of the name, placement or clap spot; null if never edited. Edits apply in place: older
+     * sessions show the new description, so this time says when it changed.
+     */
+    val updatedAtEpochMs: Long? = null,
 )
 
 @Serializable
@@ -67,6 +76,10 @@ data class Session(
     val intervention: String = "",
     val conditions: RoomConditions = RoomConditions(),
     val createdAtEpochMs: Long,
+    /** Hidden from lists and comparison pickers; all data kept. Deletion is a separate, explicit step. */
+    val archived: Boolean = false,
+    /** Last edit of the name, kind, intervention or conditions; null if never edited. */
+    val updatedAtEpochMs: Long? = null,
 )
 
 /**

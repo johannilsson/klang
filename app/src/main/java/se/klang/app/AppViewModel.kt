@@ -2,6 +2,7 @@ package se.klang.app
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -12,18 +13,22 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.klang.app.audio.AudioCapabilities
 import se.klang.app.audio.CapabilityReport
+import se.klang.app.audio.CaptureDiagnostics
 import se.klang.app.audio.MeasurementRecorder
 import se.klang.dsp.AnalysisConfiguration
 import se.klang.dsp.ClapPeakTracker
 import se.klang.dsp.DecayAnalyzer
+import se.klang.dsp.Levels
 import se.klang.dsp.PcmSignal
 import se.klang.dsp.Wav
 import se.klang.dsp.WavEncoding
+import se.klang.dsp.WavFormatException
 import se.klang.sessions.AnalysisRecord
 import se.klang.sessions.AnalysisService
 import se.klang.sessions.AudioConfiguration
@@ -33,6 +38,8 @@ import se.klang.sessions.CaptureEvent
 import se.klang.sessions.Comparator
 import se.klang.sessions.Comparison
 import se.klang.sessions.Exporter
+import se.klang.sessions.ImportException
+import se.klang.sessions.Importer
 import se.klang.sessions.Records
 import se.klang.sessions.Room
 import se.klang.sessions.RoomConditions
@@ -40,7 +47,7 @@ import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
 import se.klang.sessions.SessionStore
 import java.io.File
-import kotlin.math.max
+import java.io.IOException
 
 /** Simple stack navigation without extra dependencies. */
 sealed interface Screen {
@@ -59,7 +66,11 @@ sealed interface Sheet {
     data class NewSession(val roomId: String) : Sheet
     data object Protocol : Sheet
     data object HowToClap : Sheet
+    /** Editable conditions of a session. */
     data class Conditions(val sessionId: String) : Sheet
+    data class EditRoom(val roomId: String) : Sheet
+    data class EditPosition(val roomId: String, val positionId: String) : Sheet
+    data class EditSession(val sessionId: String) : Sheet
 }
 
 sealed interface CaptureUi {
@@ -87,6 +98,7 @@ sealed interface CaptureUi {
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
     val store = SessionStore(File(app.filesDir, "klang"))
+    private val exportDir = File(app.cacheDir, "exports")
     private val analysis = AnalysisService(store)
     private val recorder = MeasurementRecorder(app)
     val analysisConfig = AnalysisConfiguration()
@@ -124,6 +136,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun changed() { revision++ }
 
+    init {
+        // Shared export ZIPs and test WAVs accumulate in the cache; keep only the newest, which a share may still be reading.
+        viewModelScope.launch(Dispatchers.IO) { ExportCache.prune(exportDir) }
+    }
+
     // ---------------------------------------------------------------- data
 
     fun rooms(): List<Room> = store.rooms()
@@ -156,7 +173,103 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Conditions of the room's latest session, to prefill the next one (the protocol keeps them the same). */
     fun lastConditions(roomId: String): RoomConditions? = sessions(roomId).lastOrNull()?.conditions?.copy(sourcePosition = "")
-    fun deleteAttempt(a: CaptureAttempt) { store.deleteAttempt(a); changed() }
+    /**
+     * Deletes one clap or background attempt with its recording. Blocked like every edit while a
+     * capture or re-analysis runs: re-analysis rewrites attempt records and would bring a deleted one back.
+     */
+    fun deleteAttempt(a: CaptureAttempt): Boolean {
+        if (editingBlocked) return false
+        store.deleteAttempt(a); changed()
+        return true
+    }
+
+    /**
+     * True while something writes to the store in the background (capture and its analysis,
+     * re-analysis, import). Edits and deletes are refused meanwhile, like the deletes of #18, so a
+     * record is never rewritten from two places at once.
+     */
+    val editingBlocked: Boolean get() = isCapturing || reanalyzing || importing
+
+    fun updateRoom(roomId: String, name: String, notes: String): Boolean = edit { store.updateRoom(roomId, name, notes) }
+    fun updatePosition(roomId: String, positionId: String, name: String, placementNotes: String, clapSpot: String): Boolean =
+        edit { store.updatePosition(roomId, positionId, name, placementNotes, clapSpot) }
+    fun movePosition(roomId: String, positionId: String, offset: Int): Boolean = edit { store.movePosition(roomId, positionId, offset) }
+    fun updateSession(sessionId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions): Boolean =
+        edit { store.updateSession(sessionId, name, kind, intervention, conditions) }
+
+    private inline fun edit(block: () -> Unit): Boolean {
+        if (editingBlocked) return false
+        block(); changed()
+        return true
+    }
+
+    /** What deleting a position removes: its clap and background recordings, and the sessions they are in. */
+    data class PositionDeleteImpact(val recordings: Int, val sessions: Int)
+
+    fun positionDeleteImpact(roomId: String, positionId: String): PositionDeleteImpact {
+        val bySession = store.positionAttempts(roomId, positionId)
+        return PositionDeleteImpact(bySession.values.sumOf { it.size }, bySession.size)
+    }
+
+    /** Permanently deletes a position and its recordings in every session of the room, and closes their attempt screens. */
+    fun deletePosition(roomId: String, positionId: String): Boolean {
+        if (editingBlocked) return false
+        viewModelScope.launch {
+            val removed = withContext(Dispatchers.IO) {
+                // Already gone (a repeated tap): nothing to do.
+                if (store.room(roomId)?.positions?.any { it.id == positionId } != true) return@withContext emptySet()
+                val ids = store.positionAttempts(roomId, positionId).values.flatten().map { it.id }.toSet()
+                store.deletePosition(roomId, positionId)
+                ids
+            }
+            backStack.removeAll { it is Screen.AttemptDetail && it.attemptId in removed }
+            changed()
+        }
+        return true
+    }
+
+    /** Duration and levels of a recording, read from its WAV (dBFS, never SPL). Null when the file cannot be read. */
+    data class RecordingLevels(val durationSeconds: Double, val sampleRate: Int, val rmsDbfs: Double, val peakDbfs: Double)
+
+    suspend fun recordingLevels(a: CaptureAttempt): RecordingLevels? = withContext(Dispatchers.IO) {
+        try {
+            val signal = Wav.read(store.recordingFile(a).readBytes()).signal
+            RecordingLevels(signal.durationSeconds, signal.sampleRate, Levels.rmsDbfs(signal.samples), Levels.peakDbfs(signal.samples))
+        } catch (e: IOException) {
+            null
+        } catch (e: WavFormatException) {
+            null
+        }
+    }
+
+    /** Whether lists include archived rooms / sessions (toggled from the top-bar menu). */
+    var showArchivedRooms by mutableStateOf(false)
+    var showArchivedSessions by mutableStateOf(false)
+
+    /** Archive hides a room or session from the lists and keeps every record and recording. */
+    fun setRoomArchived(roomId: String, archived: Boolean) { store.setRoomArchived(roomId, archived); changed() }
+    fun setSessionArchived(sessionId: String, archived: Boolean) { store.setSessionArchived(sessionId, archived); changed() }
+
+    /** Permanently deletes a room with its sessions, attempts and recordings, then returns to Home. */
+    fun deleteRoom(roomId: String) {
+        if (editingBlocked) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { store.deleteRoom(roomId) }
+            backStack.retainAll { it == Screen.Home }
+            if (backStack.isEmpty()) backStack += Screen.Home
+            changed()
+        }
+    }
+
+    /** Permanently deletes a session with its attempts and recordings, and leaves its screens. */
+    fun deleteSession(sessionId: String) {
+        if (editingBlocked) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { store.deleteSession(sessionId) }
+            backStack.removeAll { (it is Screen.SessionDetail && it.sessionId == sessionId) || (it is Screen.AttemptDetail && it.sessionId == sessionId) }
+            changed()
+        }
+    }
 
     fun refreshCapabilities() { capabilities = AudioCapabilities.probe(getApplication()) }
 
@@ -176,7 +289,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun runTestCapture() {
         startCapture(AttemptKind.IMPULSE) { outcome ->
             val record = withContext(Dispatchers.Default) {
-                val discontinuities = outcome.events.filter { it.type in DISCONTINUITY_TYPES }.map { it.atFrame.toInt() }
+                val discontinuities = CaptureDiagnostics.discontinuityFrames(outcome.events)
                 val result = DecayAnalyzer(analysisConfig).analyze(PcmSignal(outcome.samples, outcome.sampleRate, discontinuities))
                 Records.of(result, System.currentTimeMillis())
             }
@@ -189,7 +302,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun shareTestWav(): Intent? = withContext(Dispatchers.IO) {
         val t = testCapture ?: return@withContext null
         val app = getApplication<Application>()
-        val dir = File(app.cacheDir, "exports").apply { mkdirs() }
+        val dir = exportDir.apply { mkdirs() }
+        ExportCache.prune(dir)
         val file = File(dir, "klang-test-${System.currentTimeMillis()}.wav")
         file.outputStream().use { Wav.write(it, t.samples, t.sampleRate, WavEncoding.FLOAT_32) }
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
@@ -255,35 +369,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun startCapture(kind: AttemptKind, onCompleted: suspend (MeasurementRecorder.Outcome.Completed) -> CaptureUi) {
         if (isCapturing) return
         captureJob = viewModelScope.launch {
-            for (s in COUNTDOWN_SECONDS downTo 1) {
+            for (s in CaptureFlow.countdown()) {
                 capture = CaptureUi.Countdown(s, kind)
                 delay(1000)
             }
             val total = RECORD_SECONDS
-            capture = CaptureUi.Recording(if (kind == AttemptKind.BACKGROUND) "BACKGROUND" else "QUIET", 0.0, total, kind)
+            capture = CaptureUi.Recording(CaptureFlow.phase(kind, 0.0), 0.0, total, kind)
             val outcome = recorder.record(total) { t, peakDb ->
-                val phase = when {
-                    kind == AttemptKind.BACKGROUND -> "BACKGROUND"
-                    t < PRE_ROLL_SECONDS -> "QUIET"
-                    t < PRE_ROLL_SECONDS + 1.5 -> "CLAP"
-                    else -> "LISTEN"
-                }
+                val phase = CaptureFlow.phase(kind, t)
                 // Hop to the main thread; the capture thread must not touch Compose state.
                 viewModelScope.launch(Dispatchers.Main) {
                     val cur = capture
                     if (cur is CaptureUi.Recording) {
-                        val hold = if (phase == "QUIET") cur.clapPeakDbfs else max(cur.clapPeakDbfs, peakDb)
-                        capture = CaptureUi.Recording(phase, t, total, kind, peakDb, hold)
+                        capture = CaptureUi.Recording(phase, t, total, kind, peakDb, CaptureFlow.clapPeakHold(phase, cur.clapPeakDbfs, peakDb))
                     }
                 }
             }
-            capture = when (outcome) {
-                is MeasurementRecorder.Outcome.Cancelled -> CaptureUi.Problem("Capture ${outcome.reason.lowercase()}; nothing was saved.")
-                is MeasurementRecorder.Outcome.Failed -> CaptureUi.Problem(outcome.message)
-                is MeasurementRecorder.Outcome.Completed -> {
-                    capture = CaptureUi.Analyzing
-                    onCompleted(outcome)
-                }
+            capture = CaptureFlow.problemFor(outcome) ?: run {
+                capture = CaptureUi.Analyzing
+                onCompleted(outcome as MeasurementRecorder.Outcome.Completed)
             }
         }
     }
@@ -313,10 +417,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         capture = CaptureUi.Problem("Microphone permission is needed to record a measurement. Nothing is recorded outside a measurement.")
     }
 
-    fun reanalyze(sessionId: String) {
+    /** True while [reanalyze] runs; screens disable their re-analyse buttons meanwhile. */
+    var reanalyzing by mutableStateOf(false)
+        private set
+
+    /** Sessions whose last re-analysis failed, with the error; null when the last run succeeded. */
+    var reanalysisError by mutableStateOf<String?>(null)
+        private set
+
+    fun reanalyze(sessionId: String) = reanalyze(listOf(sessionId))
+
+    /**
+     * Analyses every impulse attempt in [sessionIds] that has no result for the current algorithm
+     * version. Appends results; recordings and older results are kept. Bumps [revision] when done,
+     * so open comparisons are rebuilt.
+     */
+    fun reanalyze(sessionIds: List<String>) {
+        if (reanalyzing || sessionIds.isEmpty()) return
+        reanalyzing = true
+        reanalysisError = null
         viewModelScope.launch(Dispatchers.Default) {
-            analysis.reanalyzeSession(sessionId, analysisConfig)
-            withContext(Dispatchers.Main) { changed() }
+            // One failing session must not stop the others; failures are reported, not swallowed.
+            val failures = mutableListOf<String>()
+            try {
+                CaptureFlow.reanalyzeEach(sessionIds, failures, { store.session(it)?.name }) { id ->
+                    analysis.reanalyzeSession(id, analysisConfig)
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.Main) {
+                    reanalyzing = false
+                    reanalysisError = CaptureFlow.reanalysisMessage(failures)
+                    changed()
+                }
+            }
         }
     }
 
@@ -337,8 +470,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun exportRoom(roomId: String, comparisons: List<Comparison>): Intent = withContext(Dispatchers.IO) {
         val app = getApplication<Application>()
         val exporter = Exporter(store, BuildConfig.VERSION_NAME)
-        val dir = File(app.cacheDir, "exports").apply { mkdirs() }
-        dir.listFiles()?.forEach { it.delete() }
+        val dir = exportDir.apply { mkdirs() }
+        ExportCache.prune(dir)
         val file = File(dir, "klang-export-${System.currentTimeMillis()}.zip")
         file.outputStream().use { exporter.writeZip(exporter.document(roomId, comparisons), it) }
         val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", file)
@@ -349,11 +482,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Outcome of an import, shown until dismissed. */
+    data class ImportOutcome(val succeeded: Boolean, val message: String)
+
+    /** True while an import runs; [importOutcome] holds the result until dismissed. */
+    var importing by mutableStateOf(false)
+        private set
+    var importOutcome by mutableStateOf<ImportOutcome?>(null)
+        private set
+
+    /**
+     * Imports a `klang-export-*.zip` picked with the system file picker. Runs off the main thread;
+     * never overwrites an existing recording or analysis (see docs/export-format.md).
+     */
+    fun importExport(uri: Uri) {
+        if (importing || isCapturing) return
+        importing = true
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                try {
+                    getApplication<Application>().contentResolver.openInputStream(uri)
+                        ?.use { ImportOutcome(true, Importer(store).import(it).summary()) }
+                        ?: ImportOutcome(false, "Could not open the selected file.")
+                } catch (e: ImportException) {
+                    ImportOutcome(false, "${e.message} Nothing was imported.")
+                } catch (e: SecurityException) {
+                    ImportOutcome(false, "No permission to read the selected file. Nothing was imported.")
+                } catch (e: IOException) {
+                    ImportOutcome(false, "The import stopped: ${e.message}. $PARTIAL_IMPORT")
+                } catch (e: IllegalStateException) {
+                    ImportOutcome(false, "The import stopped: ${e.message}. $PARTIAL_IMPORT")
+                }
+            }
+            importing = false
+            importOutcome = outcome
+            changed()
+        }
+    }
+
+    fun dismissImportOutcome() { importOutcome = null }
+
     companion object {
         const val PRE_ROLL_SECONDS = 1.5
         const val COUNTDOWN_SECONDS = 3
         const val RECORD_SECONDS = 5.0
         const val PRACTICE_SECONDS = 30.0
+        private const val PARTIAL_IMPORT =
+            "Recordings imported so far are complete and nothing existing was replaced; importing the same file again finishes the rest."
         val DISCONTINUITY_TYPES: Set<String> = AnalysisService.DISCONTINUITY_EVENTS
         fun describeEvent(e: CaptureEvent) = "${e.type} at frame ${e.atFrame}${if (e.detail.isNotEmpty()) ": ${e.detail}" else ""}"
     }

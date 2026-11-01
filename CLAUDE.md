@@ -21,20 +21,22 @@ for the method and every threshold, `docs/export-format.md` for the export schem
 ./gradlew -p core :cli:installDist          # builds core/cli/build/install/klang-analyse/bin/klang-analyse
 
 # Android (needs the SDK, see below)
-./gradlew :app:assembleDebug :app:lintDebug  # APK: app/build/outputs/apk/debug/app-debug.apk
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug  # APK: app/build/outputs/apk/debug/app-debug.apk
 
 # Regenerate docs/validation-synthetic.md from code (do this after any change to the DSP)
 ./gradlew -p core :dsp:test --tests '*ValidationReportTest' -Dklang.writeReport=true --rerun-tasks
 ```
 
-Test results are XML under `core/*/build/test-results/test/`. Gradle only prints failures in `-q` mode, so
-after a run count tests and failures from those files. A run filtered with `--tests` replaces the XML for
-that module, so the counts only cover the filtered tests: run `./gradlew -p core test` unfiltered for the
-real total (48 tests at the time of writing).
+Test results are XML under `core/*/build/test-results/test/` and `app/build/test-results/testDebugUnitTest/`.
+Gradle only prints failures in `-q` mode, so after a run count tests and failures from those files:
+`python3 .github/scripts/junit_summary.py` (core) and
+`python3 .github/scripts/junit_summary.py --title='App unit tests' 'app/build/test-results/testDebugUnitTest/*.xml'`.
+A run filtered with `--tests` replaces the XML for that module, so the counts only cover the filtered tests:
+run unfiltered for the real total. Do not write test counts into docs; CI's job summary shows the current ones.
 
 Run the app on a device: install the debug APK (sideload). An emulator does not reproduce the microphone
 behaviour that matters here (source, effects, headroom): that needs a real phone. CI
-(`.github/workflows/build.yml`) builds the core, runs the tests and builds the debug APK.
+(`.github/workflows/build.yml`) runs the core and app unit tests, lint, and builds the debug APK.
 
 ## Environment gotchas (cloud sandbox)
 
@@ -43,14 +45,25 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   Do not work around a denied host: tell the user.
 - **Android SDK** is not preinstalled. Install the command-line tools from `dl.google.com`
   (`repository2-3.xml` lists `commandlinetools-linux-*_latest.zip`), then
-  `sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-36" "build-tools;36.0.0" "platform-tools"`
-  and write `sdk.dir=$HOME/android-sdk` to `local.properties` (gitignored).
+  `sdkmanager --sdk_root=$HOME/android-sdk --licenses`, then
+  `sdkmanager --sdk_root=$HOME/android-sdk "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"`
+  (compileSdk 37; AGP downloads any other build-tools it needs) and write `sdk.dir=<absolute $HOME/android-sdk>`
+  to `local.properties` (gitignored; in each git worktree too).
 - **Maven Central rate-limits with HTTP 429** from this sandbox, often on the first build after a change in
   dependencies. It is transient: retry with backoff (15 s, 30 s, 45 s…), e.g. loop the Gradle command while
   its output contains `429`. A 429 is not a build failure in the code.
-- JDK in the sandbox is 21; the code targets Java 17 bytecode (`jvmTarget` 17) so it also builds on JDK 17 in CI.
+- The build runs on **JDK 21** (LTS), in the sandbox and in CI. The code is still compiled to Java 17 bytecode
+  (`jvmTarget` 17), so the app and `klang-analyse` run on Java 17+. JDK 21 is a requirement, not a preference:
+  Robolectric's Android SDK 36 runtime (app unit tests) refuses to start on older Java. Do not move CI to a
+  non-LTS JDK, and try a newer LTS locally before changing CI.
 - Unzip user-provided exports into a **new** directory and never `rm -rf` (the safety check blocks it, and it
   is not needed).
+- **Parallel agents in git worktrees** may start from an old commit, not from your branch. Tell each agent to
+  run `git checkout -b <its-branch> <your-branch>` first and check `git log -1`, then merge their branches one at
+  a time and run the tests after each merge. Each worktree also needs its own `local.properties`.
+- **WebFetch and the shell use different network paths**: a host added to the allowed domains can still fail in
+  WebFetch (DNS error) while `curl` in the shell reaches it. Download public reference documents with `curl` into
+  a new scratch directory and read them there (`pdftotext -layout` is installed).
 
 ## Analysing a user's export or WAV
 
@@ -86,6 +99,14 @@ were the recording (taps in the pre-roll, no headroom, ambient noise, late movem
   capture loop only copies samples into a preallocated array; no DSP, storage or UI work on it.
 - Example values may appear in UI previews only, visibly marked as examples.
 - Keep the synthetic tests as engineering checks. Do not present their accuracy as real-room accuracy.
+- **Reference data only from public, freely readable sources.** Target values, guide ranges, formulas and
+  coefficients the app ships must come from documents anyone can read for free (e.g. UK Building
+  Bulletin 93, Open Government Licence; public-domain physics such as Sabine's formula), cited in `docs/`
+  with title, edition, table/section and URL, and verified against the source, never from memory.
+  **Closed sources** (paid standards such as DIN, SS, ISO, or ANSI unless its publisher offers it free) may
+  inform the data model's structure (e.g. targets that depend on volume, per-band tolerances, room-use
+  groups), never the values in the repo or the app. Other data comes in only as user-entered or imported
+  reference profiles (#27), labelled as such.
 
 ## Conventions
 

@@ -29,7 +29,22 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.content.Intent
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import se.klang.app.ui.ConfirmPermanentDelete
+import se.klang.app.ui.POSITION_DELETE_DETAIL
+import se.klang.app.ui.positionDeleteWhat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,9 +76,18 @@ const val PROTOCOL_FOOTNOTE =
 fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val room = vm.room(roomId) ?: return
-    val sessions = vm.sessions(roomId)
+    val allSessions = vm.sessions(roomId)
+    val sessions = allSessions.filter { vm.showArchivedSessions || !it.archived }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirmDeletePosition by remember { mutableStateOf<MeasurementPosition?>(null) }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = FabScreenPadding) {
+        if (room.archived) item {
+            ArchivedBanner("This room is archived: hidden from the room list, with all sessions and recordings kept.") {
+                vm.setRoomArchived(roomId, false)
+            }
+        }
         if (room.notes.isNotBlank()) item {
             Text(
                 room.notes,
@@ -72,7 +96,7 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
-        if (room.positions.isEmpty() || sessions.isEmpty()) item {
+        if (room.positions.isEmpty() || allSessions.isEmpty()) item {
             Card(
                 Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -100,14 +124,28 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
             Card(Modifier.fillMaxWidth()) {
                 room.positions.forEachIndexed { i, p ->
                     if (i > 0) HorizontalDivider(Modifier.padding(start = 72.dp))
-                    PositionItem(i + 1, p)
+                    PositionItem(
+                        i + 1, p,
+                        enabled = !vm.editingBlocked,
+                        canMoveUp = i > 0,
+                        canMoveDown = i < room.positions.lastIndex,
+                        onEdit = { vm.sheet = Sheet.EditPosition(roomId, p.id) },
+                        onMove = { offset -> vm.movePosition(roomId, p.id, offset) },
+                        onDelete = { confirmDeletePosition = p },
+                    )
                 }
             }
         }
 
         item { SectionHeader("Sessions") }
         if (sessions.isEmpty()) item {
-            EmptyText(if (room.positions.isEmpty()) "Add a position first, then start a baseline." else "No sessions yet. Start with a baseline.")
+            EmptyText(
+                when {
+                    allSessions.isNotEmpty() -> "All sessions are archived. Show them from the ⋮ menu."
+                    room.positions.isEmpty() -> "Add a position first, then start a baseline."
+                    else -> "No sessions yet. Start with a baseline."
+                },
+            )
         }
         else item {
             Card(Modifier.fillMaxWidth()) {
@@ -116,7 +154,10 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                     ListItem(
                         headlineContent = { Text(s.name) },
                         supportingContent = {
-                            Text((if (s.intervention.isNotBlank()) "${s.intervention} · " else "") + "${vm.attempts(s.id).size} recordings")
+                            Text(
+                                (if (s.archived) "Archived · " else "") + (if (s.intervention.isNotBlank()) "${s.intervention} · " else "") +
+                                    "${vm.attempts(s.id).size} recordings",
+                            )
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -129,6 +170,36 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                     )
                 }
             }
+        }
+    }
+
+    confirmDeletePosition?.let { p ->
+        val impact = remember(p.id, vm.revision) { vm.positionDeleteImpact(roomId, p.id) }
+        ConfirmPermanentDelete(
+            title = "Delete position?",
+            what = positionDeleteWhat(p.name, impact.recordings, impact.sessions),
+            detail = POSITION_DELETE_DETAIL,
+            canArchive = false,
+            onDelete = { confirmDeletePosition = null; vm.deletePosition(roomId, p.id) },
+            onExportFirst = {
+                confirmDeletePosition = null
+                scope.launch { context.startActivity(Intent.createChooser(vm.exportRoom(roomId, emptyList()), "Export room")) }
+            },
+            onDismiss = { confirmDeletePosition = null },
+        )
+    }
+}
+
+/** Shown at the top of an archived room or session, with the way back. */
+@Composable
+fun ArchivedBanner(text: String, onUnarchive: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onUnarchive) { Text("Unarchive") }
         }
     }
 }
@@ -155,14 +226,32 @@ private fun EmptyText(text: String) {
     )
 }
 
+/** A room position with its ⋮ menu: edit, move up or down (display order only), delete. */
 @Composable
-private fun PositionItem(number: Int, p: MeasurementPosition) {
+private fun PositionItem(
+    number: Int, p: MeasurementPosition, enabled: Boolean, canMoveUp: Boolean, canMoveDown: Boolean,
+    onEdit: () -> Unit, onMove: (Int) -> Unit, onDelete: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
     ListItem(
         leadingContent = { NumberBadge(number.toString()) },
         headlineContent = { Text(p.name) },
         supportingContent = {
             val detail = listOfNotNull(p.placementNotes.takeIf { it.isNotBlank() }, p.clapSpot.takeIf { it.isNotBlank() }?.let { "Clap: $it" })
             Text(detail.joinToString(" · ").ifEmpty { "No placement notes" })
+        },
+        trailingContent = {
+            Box {
+                IconButton(enabled = enabled, onClick = { open = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "Options for ${p.name}")
+                }
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DropdownMenuItem(text = { Text("Edit…") }, onClick = { open = false; onEdit() })
+                    if (canMoveUp) DropdownMenuItem(text = { Text("Move up") }, onClick = { open = false; onMove(-1) })
+                    if (canMoveDown) DropdownMenuItem(text = { Text("Move down") }, onClick = { open = false; onMove(1) })
+                    DropdownMenuItem(text = { Text("Delete permanently…") }, onClick = { open = false; onDelete() })
+                }
+            }
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )

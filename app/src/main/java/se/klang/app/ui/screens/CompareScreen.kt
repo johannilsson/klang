@@ -38,6 +38,7 @@ import se.klang.app.ui.SectionCard
 import se.klang.app.ui.fmt
 import se.klang.app.ui.theme.BaselineColor
 import se.klang.app.ui.theme.TreatmentColor
+import se.klang.sessions.AnalysisCoverage
 import se.klang.sessions.ComparisonCell
 import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
@@ -54,7 +55,7 @@ fun verdictLabel(v: Verdict) = when (v) {
 fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val room = vm.room(roomId) ?: return
-    val sessions = vm.sessions(roomId)
+    val sessions = vm.sessions(roomId).filter { !it.archived }
     var baseline by remember { mutableStateOf(sessions.firstOrNull { it.kind == SessionKind.BASELINE }?.id) }
     var repeat by remember { mutableStateOf(sessions.firstOrNull { it.kind == SessionKind.REPEAT_BASELINE }?.id) }
     var treatment by remember { mutableStateOf(sessions.lastOrNull { it.kind == SessionKind.TREATMENT }?.id) }
@@ -86,6 +87,11 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
         if (comparison == null) {
             item { Text("Choose a baseline and a treatment session.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
+            if (comparison.staleAnalyses.isNotEmpty()) item {
+                StaleAnalysesCard(comparison.staleAnalyses, comparison.algorithmVersion, vm.reanalyzing, vm.reanalysisError) {
+                    vm.reanalyze(comparison.staleAnalyses.map { it.sessionId })
+                }
+            }
             if (comparison.configurationWarnings.isNotEmpty()) item {
                 SectionCard(if (comparison.configurationsIncompatible) "Configurations differ — comparison blocked" else "Notes") {
                     comparison.configurationWarnings.forEach { Text("⚠ $it", style = MaterialTheme.typography.bodySmall) }
@@ -120,6 +126,35 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
                 }) { Text("Export with this comparison") }
             }
         }
+    }
+}
+
+/**
+ * Attempts without a result at the current algorithm version count as not analysed; results from
+ * different versions are never mixed. Offers a re-analysis, which appends results.
+ */
+@Composable
+private fun StaleAnalysesCard(stale: List<AnalysisCoverage>, version: String, running: Boolean, error: String?, onReanalyze: () -> Unit) {
+    SectionCard("Re-analysis needed") {
+        stale.forEach { c ->
+            val older = c.otherVersions.entries.joinToString(" and ") { (v, n) -> "$n with algorithm $v" }
+            val never = if (c.neverAnalysed > 0) "${c.neverAnalysed} not analysed" else ""
+            val detail = listOf(older, never).filter { it.isNotEmpty() }.joinToString("; ")
+            Text(
+                "${c.missing} of ${c.impulseAttempts} recording(s) in '${c.sessionName}' have no result with algorithm $version" +
+                    (if (detail.isNotEmpty()) " ($detail)" else "") + ".",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        Text(
+            "They are counted as not analysed below, so affected cells show too few valid attempts. Re-analyse to compare " +
+                "with algorithm $version. Recordings and earlier results are kept.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Button(enabled = !running, onClick = onReanalyze, modifier = Modifier.padding(top = 8.dp)) {
+            Text(if (running) "Re-analysing…" else "Re-analyse with algorithm $version")
+        }
+        if (error != null) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }
 

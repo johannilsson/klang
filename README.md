@@ -10,22 +10,28 @@ a calibrated sound level meter and not a standards-compliant acoustic survey. Le
 dBFS (relative to digital full scale), never dB SPL. When a result would be unreliable, the app
 shows the reason instead of a number.
 
-## Status (0.1.0)
+## Status
+
+App 0.1.0, analysis algorithm `klang.schroeder-truncated` 0.2.0.
 
 | Part | State |
 |---|---|
-| DSP module (`core/dsp`) | Implemented; 31 unit tests on synthetic fixtures (see [validation-synthetic.md](docs/validation-synthetic.md)) |
-| Sessions, persistence, comparison, export (`core/sessions`) | Implemented; 8 unit tests |
+| DSP module (`core/dsp`) | Implemented; unit tests on synthetic fixtures (see [validation-synthetic.md](docs/validation-synthetic.md)) |
+| Sessions, persistence, comparison, export and import (`core/sessions`) | Implemented; unit tests |
 | Desktop analyser for imported WAVs (`core/cli`) | Implemented, for comparison with REW |
-| Android capture layer and capability screen (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
-| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented; builds and passes lint; **not yet run on a device** |
-| REW comparison, device validation, unchanged-room repeatability | Not started; see [validation-plan.md](docs/validation-plan.md) |
+| Android capture layer and capability screen (`app`) | Implemented; JVM/Robolectric unit tests; first test captures run on a Pixel 9 Pro (see [validation-plan.md §3](docs/validation-plan.md#3-device-capability-on-the-target-phone--first-findings)) |
+| Guided sessions, attempt inspection, comparison UI, export/share (`app`) | Implemented; ten claps recorded on a Pixel 9 Pro with an earlier build. Re-analysis prompt, archive/delete, import, editing and targetSdk 37 **not yet run on a device** (checklist in issue #8) |
+| Device validation | Partly done (first findings); see [validation-plan.md](docs/validation-plan.md) |
+| REW comparison, unchanged-room repeatability, sensitivity | Not started; see [validation-plan.md](docs/validation-plan.md) |
+
+CI runs the core tests, the app unit tests and Android lint on every push, and writes the test counts
+to the job summary.
 
 The app module started from the Android Studio *Empty Activity* (Jetpack Compose) template:
-version catalog, single activity, Material 3 theme. It builds with AGP 8.13.2, Kotlin 2.4.21 and
-Compose BOM 2025.10.00 (`./gradlew :app:assembleDebug`, lint clean of errors); CI
-(`.github/workflows/build.yml`) builds it on every push. Newer AndroidX releases and AGP 9 exist;
-upgrade with Android Studio's assistant when convenient.
+version catalog, single activity, Material 3 theme. It builds with Gradle 9.8.2, AGP 9.5.0 (built-in
+Kotlin support), Kotlin 2.4.21 and Compose BOM 2026.09.00, compiling against Android API 37
+(`./gradlew :app:assembleDebug`, lint clean of errors); CI (`.github/workflows/build.yml`) builds it
+on every push.
 
 Following the brief's delivery order, device feasibility and unchanged-room repeatability (steps
 2–3) should be checked on the target phone before relying on the session and comparison UI.
@@ -38,7 +44,7 @@ app/                Android app (Kotlin, Jetpack Compose, minSdk 29)
   ui/screens/       Home, Microphone check, Room, Session, Attempt, Compare
 core/               Separate Gradle build, pure Kotlin/JVM — no Android SDK needed
   dsp/              Octave filters, impulse detection, Schroeder/truncation, T20/EDT fits, quality gates
-  sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export
+  sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export, import
   cli/              klang-analyse: analyse WAV files on a desktop
 docs/               DSP method, export schema, validation plan, generated synthetic results
 scripts/            analyse_export.py: summarise an export ZIP and re-analyse its recordings
@@ -48,7 +54,7 @@ CLAUDE.md           notes for Claude: build/test/run steps, sandbox gotchas, rul
 ## Build
 
 ```sh
-# Core: DSP + sessions + CLI (any JDK 17+, no Android SDK)
+# Core: DSP + sessions + CLI (JDK 21, no Android SDK)
 ./gradlew -p core test
 ./gradlew -p core :cli:installDist
 core/cli/build/install/klang-analyse/bin/klang-analyse recording.wav        # table
@@ -90,6 +96,22 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    inconclusive*.
 6. **Export**: a ZIP with `results.json`, `summary.csv`, `comparison.csv` and the original WAVs,
    shared through the system share sheet ([schema](docs/export-format.md)).
+7. **Import**: *Import export…* in the Home top-bar menu reads an export ZIP back (system file picker, no
+   storage permission). Existing recordings and analyses are never overwritten; the
+   [collision policy](docs/export-format.md#import) says what is merged.
+8. **Archive or delete**: the top-bar menu on a room or session screen archives it (hidden from
+   lists and comparisons, everything kept, reversible; *Show archived* in the same menu lists them
+   again) or deletes it permanently with its recordings, after a confirmation that suggests
+   exporting first.
+9. **Edit**: *Edit room…* and *Edit session…* in the top-bar menu change a name, notes, session type
+   (which changes how Compare uses the session) or what changed; *Conditions* edits a session's room
+   conditions. Each position's ⋮ menu on the room screen edits it, moves it up or down, or deletes it.
+   A position edit applies in place, so older sessions show the new description (the sheet warns when
+   the position already has recordings). Deleting a position removes its clap and background
+   recordings in every session and takes it out of every comparison, after the same confirmation.
+   Background recordings open like claps (duration, levels in dBFS, capture events) and can be
+   deleted. Recordings and analysis results are never edited. Nothing can be edited while a
+   recording, re-analysis or import runs.
 
 ## Design notes
 
@@ -107,6 +129,10 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
 * **Persistence**: app-private JSON plus the original WAVs, written atomically. Every analysis is
   appended with its algorithm version and full configuration, so re-analysis never replaces a
   recording or an earlier result.
+* **Backup and moving data**: Android Auto Backup includes the store, but cloud backup has a 25 MB
+  quota per app, and above it the system does not back the app up at all. A 5 s recording is about
+  1 MB (48 kHz, 32-bit float), so a few sessions exceed it and recordings may not be backed up. Use
+  *Export* and *Import* to keep or move data: an export ZIP holds every result and the original WAVs.
 * **Comparison**: a descriptive, versioned rule, not a significance test. There are no confidence
   percentages and no combined room score.
 

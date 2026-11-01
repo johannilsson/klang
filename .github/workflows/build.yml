@@ -8,28 +8,53 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+          # JDK 21 (LTS) runs the whole build; the code is still compiled to Java 17 bytecode.
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
 
       - name: Core tests (DSP, sessions, export)
         run: ./gradlew -p core test :cli:installDist
 
-      - name: Android debug build
-        run: ./gradlew :app:assembleDebug
+      - name: Core test summary
+        if: always()
+        run: python3 .github/scripts/junit_summary.py 'core/*/build/test-results/test/*.xml'
+
+      - name: Android unit tests, debug build and lint
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+
+      - name: App test summary
+        if: always()
+        run: python3 .github/scripts/junit_summary.py --title='App unit tests' 'app/build/test-results/testDebugUnitTest/*.xml'
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: klang-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
+      - name: Upload lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint-results-debug.html
+            app/build/reports/lint-results-debug.xml
+            app/build/reports/lint-results-debug.txt
+            app/build/reports/lint-results-debug.sarif
+          if-no-files-found: ignore
+
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-reports
-          path: core/*/build/reports/tests/
+          path: |
+            core/*/build/reports/tests/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/test-results/testDebugUnitTest/
+          if-no-files-found: ignore

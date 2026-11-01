@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
@@ -55,6 +57,7 @@ import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
+import se.klang.app.ui.displayedT20
 import se.klang.app.ui.fmt
 import se.klang.app.ui.stateColor
 import se.klang.app.ui.stateLabel
@@ -84,6 +87,11 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
         contentPadding = ScreenPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (session.archived) item {
+            ArchivedBanner("This session is archived: hidden from the session list and comparisons, with its recordings kept.") {
+                vm.setSessionArchived(sessionId, false)
+            }
+        }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -98,12 +106,13 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                 }
                 val stale = attempts.count { it.kind == AttemptKind.IMPULSE && it.analysis(AnalysisConfiguration.VERSION) == null }
                 if (stale > 0) {
-                    FilledTonalButton(onClick = { vm.reanalyze(sessionId) }) {
+                    FilledTonalButton(onClick = { vm.reanalyze(sessionId) }, enabled = !vm.reanalyzing) {
                         Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                         Text("Analyse $stale recording(s) with algorithm ${AnalysisConfiguration.VERSION}")
                     }
                 }
+                vm.reanalysisError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 CapturePanel(vm) { id -> attempts.firstOrNull { it.id == id }?.let { LastAttemptSummary(it) } }
                 OutlinedCard(onClick = { vm.sheet = Sheet.HowToClap }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                     ListItem(
@@ -135,7 +144,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
             val here = attempts.filter { it.positionId == p.id }
             val impulses = here.filter { it.kind == AttemptKind.IMPULSE }
             val backgrounds = here.filter { it.kind == AttemptKind.BACKGROUND }
-            val usable = impulses.count { a -> a.latestAnalysis()?.bands?.any { it.centerHz in setOf(500, 1000, 2000) && it.t20 != null } == true }
+            val usable = impulses.count { a -> a.latestAnalysis()?.bands?.any { it.centerHz in setOf(500, 1000, 2000) && displayedT20(it) != null } == true }
             val done = usable >= TARGET_ATTEMPTS && backgrounds.isNotEmpty()
             Card(Modifier.fillMaxWidth()) {
                 ListItem(
@@ -147,6 +156,11 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                         Column {
                             Text(if (p.clapSpot.isNotBlank()) "Clap spot: ${p.clapSpot}" else "No clap spot noted")
                             if (p.placementNotes.isNotBlank()) Text("Phone: ${p.placementNotes}")
+                        }
+                    },
+                    trailingContent = {
+                        IconButton(enabled = !vm.editingBlocked, onClick = { vm.sheet = Sheet.EditPosition(room.id, p.id) }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit position ${p.name}")
                         }
                     },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -180,7 +194,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                     }
                     backgrounds.forEachIndexed { i, a ->
                         if (i > 0 || impulses.isNotEmpty()) RecordingDivider()
-                        BackgroundRow(a)
+                        BackgroundRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) }
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -235,7 +249,7 @@ private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
 
 @Composable
 private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
-    val value = if (b.state == QualityState.INVALID) null else b.t20?.seconds
+    val value = displayedT20(b)?.seconds
     val description = "${b.centerHz} Hz, ${stateLabel(b.state)}" + (value?.let { ", ${fmt(it)} seconds" } ?: "")
     Column(
         modifier.clearAndSetSemantics { contentDescription = description },
@@ -250,9 +264,9 @@ private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
     }
 }
 
-/** A background recording as a two-line list item (72 dp). */
+/** A background recording as a two-line list item (72 dp); opens its detail page (levels, events, delete). */
 @Composable
-private fun BackgroundRow(a: CaptureAttempt) {
+private fun BackgroundRow(a: CaptureAttempt, onClick: () -> Unit) {
     val events = a.captureEvents.size
     ListItem(
         leadingContent = { RecordingBadge("${a.sequence}", null) },
@@ -263,7 +277,9 @@ private fun BackgroundRow(a: CaptureAttempt) {
                 color = if (events > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 

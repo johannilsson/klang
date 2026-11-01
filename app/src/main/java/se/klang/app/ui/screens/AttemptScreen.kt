@@ -15,6 +15,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -25,7 +26,9 @@ import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
+import se.klang.app.ui.displayedT20
 import se.klang.app.ui.fmt
+import se.klang.sessions.AttemptKind
 import java.text.DateFormat
 import java.util.Date
 
@@ -35,6 +38,11 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
     val a = vm.attempts(sessionId).firstOrNull { it.id == attemptId } ?: return
     val an = a.latestAnalysis()
     var confirmDelete by remember { mutableStateOf(false) }
+    val background = a.kind == AttemptKind.BACKGROUND
+    // Read from the WAV for recordings without an analysis (backgrounds, or claps not analysed yet).
+    val levels by produceState<AppViewModel.RecordingLevels?>(null, a.id, an == null) {
+        value = if (an == null) vm.recordingLevels(a) else null
+    }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -42,8 +50,16 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SectionCard("Recording #${a.sequence}") {
+            SectionCard(if (background) "Background #${a.sequence}" else "Recording #${a.sequence}") {
                 Text(DateFormat.getDateTimeInstance().format(Date(a.createdAtEpochMs)))
+                if (an == null) {
+                    levels?.let { l ->
+                        Text("${fmt(l.durationSeconds, 1)} s at ${l.sampleRate} Hz · RMS ${fmt(l.rmsDbfs, 1)} dBFS · peak ${fmt(l.peakDbfs, 1)} dBFS")
+                        Text("dBFS = relative to digital full scale, not sound pressure level.", style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (background) Text("Background recordings are stored with their capture configuration; they are not analysed.", style = MaterialTheme.typography.bodySmall)
+                }
+                if (a.captureEvents.isEmpty()) Text("No capture events", style = MaterialTheme.typography.bodySmall)
                 a.audioConfiguration?.let { c ->
                     Text("${c.audioSource}${if (c.sourceFallback) " (fallback, device processing may be active)" else ""} · ${c.actualSampleRate} Hz ${c.encoding}")
                     Text("Input: ${c.inputDevice?.let { "${it.type} ${it.productName}" } ?: "unknown"}")
@@ -59,34 +75,37 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
             }
         }
         if (an != null) items(an.bands, key = { it.centerHz }) { b ->
+            val t20 = displayedT20(b)
             SectionCard("${b.centerHz} Hz octave${if (b.extended) " (extended band)" else ""}") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StateChip(b.state)
-                    Text("T20 ${fmt(b.t20?.seconds)} s", style = MaterialTheme.typography.titleMedium)
+                    Text("T20 ${fmt(t20?.seconds)} s", style = MaterialTheme.typography.titleMedium)
                 }
                 Text(
                     "EDT ${fmt(b.edt?.seconds)} s (secondary, not yet validated: 0…−10 dB fit, extrapolated to 60 dB)",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text("Margin ${fmt(b.marginDb, 1)} dB (needs 35) · truncated at ${fmt(b.truncationSeconds)} s", style = MaterialTheme.typography.bodySmall)
-                b.t20?.let { Text("Fit ${fmt(it.startSeconds, 3)}–${fmt(it.endSeconds, 3)} s, ${fmt(it.slopeDbPerSecond, 1)} dB/s, ξ ${fmt(it.nonLinearityPermille, 1)} ‰", style = MaterialTheme.typography.bodySmall) }
+                t20?.let { Text("Fit ${fmt(it.startSeconds, 3)}–${fmt(it.endSeconds, 3)} s, ${fmt(it.slopeDbPerSecond, 1)} dB/s, ξ ${fmt(it.nonLinearityPermille, 1)} ‰", style = MaterialTheme.typography.bodySmall) }
                 b.reasons.filter { r -> an.reasons.none { it.code == r.code } }.forEach { r ->
                     Text("• ${r.message}", style = MaterialTheme.typography.bodySmall)
                     advice(r.code)?.let { Text("   $it", style = MaterialTheme.typography.bodySmall) }
                 }
-                b.curve?.let { DecayPlot(it, b.t20) }
+                b.curve?.let { DecayPlot(it, t20) }
             }
         }
         item {
-            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete this attempt and its recording") }
+            OutlinedButton(enabled = !vm.editingBlocked, onClick = { confirmDelete = true }) {
+                Text(if (background) "Delete this background recording" else "Delete this attempt and its recording")
+            }
         }
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete attempt?") },
+            title = { Text(if (background) "Delete background recording?" else "Delete attempt?") },
             text = { Text("The original recording and all analyses of it will be removed. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deleteAttempt(a); vm.back() }) { Text("Delete") } },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; if (vm.deleteAttempt(a)) vm.back() }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep") } },
         )
     }
