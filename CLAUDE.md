@@ -1,9 +1,17 @@
 # Klang: notes for Claude
 
 Android app (Kotlin, Jetpack Compose) that compares reverberation (T20 per octave band, from handclaps on
-the phone microphone) before and after a change to a room. Read `README.md` for the product, `docs/dsp.md`
-for the method and every threshold, `docs/export-format.md` for the export schema and
-`docs/validation-plan.md` for what is and is not validated.
+the phone microphone) before and after a change to a room. Read `README.md` first (the product, short). Open the
+others **only when the task touches them**, not up front:
+
+| When you change… | Read |
+|---|---|
+| the DSP, a threshold, the analysis | `docs/dsp.md` (every threshold), `docs/validation-plan.md` |
+| the export or import | `docs/export-format.md` |
+| targets, reference profiles, BB93 | `docs/reference-profiles.md` |
+| summaries, hints, Sabine | `docs/summaries.md` |
+| the attempt screen, verdicts, the recording graph | `docs/attempt-report.md` |
+| signing, APKs | `docs/signing.md` |
 
 ## Layout
 
@@ -12,6 +20,18 @@ for the method and every threshold, `docs/export-format.md` for the export schem
 - `app/`: the Android app. It consumes `core` through `includeBuild("core")` in the root `settings.gradle.kts`.
 - `scripts/analyse_export.py`: summarise an export ZIP and re-analyse its WAVs with the current analyser.
 - `gradle/libs.versions.toml`: all versions. Use the wrapper (`./gradlew`), never a system Gradle.
+
+## Scripts and skills (use these instead of typing Gradle by hand)
+
+```sh
+scripts/check.sh [core|app]   # the CI checks; prints counts, errors and failing tests only (retries Maven 429)
+scripts/build-apk.sh          # bumps versionCode, builds the debug APK, shows version and signing key
+scripts/screens.sh            # renders the main screens to build/screens/*.png (real analyser, synthetic recordings)
+```
+
+Project skills in `.claude/skills/`: `build-apk`, `render-screens`, `squash-pr`. Add a scene to
+`app/src/test/.../ui/ScreenshotsTest.kt` rather than writing a new throwaway render test. Keep tool output small:
+count with the scripts, look at one cropped image, read a log only for its first `e:` line.
 
 ## Build and test
 

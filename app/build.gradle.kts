@@ -93,6 +93,9 @@ android {
             all {
                 // Robolectric's SDK 36 runtime sets FileDescriptor internals through jdk.internal.access.
                 it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
+                // ScreenshotsTest renders the screens to PNGs for design review: only when asked (scripts/screens.sh
+                // sets KLANG_SCREENSHOTS), so it does not slow down the normal test run.
+                if (System.getenv("KLANG_SCREENSHOTS").isNullOrEmpty()) it.exclude("**/ScreenshotsTest*")
                 // Robolectric downloads its android-all runtime (about 200 MB) itself, from Maven Central by
                 // default; use the same mirror as the build (settings.gradle.kts) to avoid HTTP 429.
                 it.systemProperty("robolectric.dependency.repo.url", "https://maven-central.storage-download.googleapis.com/maven2/")
