@@ -11,7 +11,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -20,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import se.klang.app.audio.AudioCapabilities
 import se.klang.app.audio.CapabilityReport
+import se.klang.app.audio.CaptureDiagnostics
 import se.klang.app.audio.MeasurementRecorder
 import se.klang.dsp.AnalysisConfiguration
 import se.klang.dsp.ClapPeakTracker
@@ -46,7 +46,6 @@ import se.klang.sessions.SessionKind
 import se.klang.sessions.SessionStore
 import java.io.File
 import java.io.IOException
-import kotlin.math.max
 
 /** Simple stack navigation without extra dependencies. */
 sealed interface Screen {
@@ -211,7 +210,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun runTestCapture() {
         startCapture(AttemptKind.IMPULSE) { outcome ->
             val record = withContext(Dispatchers.Default) {
-                val discontinuities = outcome.events.filter { it.type in DISCONTINUITY_TYPES }.map { it.atFrame.toInt() }
+                val discontinuities = CaptureDiagnostics.discontinuityFrames(outcome.events)
                 val result = DecayAnalyzer(analysisConfig).analyze(PcmSignal(outcome.samples, outcome.sampleRate, discontinuities))
                 Records.of(result, System.currentTimeMillis())
             }
@@ -290,35 +289,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun startCapture(kind: AttemptKind, onCompleted: suspend (MeasurementRecorder.Outcome.Completed) -> CaptureUi) {
         if (isCapturing) return
         captureJob = viewModelScope.launch {
-            for (s in COUNTDOWN_SECONDS downTo 1) {
+            for (s in CaptureFlow.countdown()) {
                 capture = CaptureUi.Countdown(s, kind)
                 delay(1000)
             }
             val total = RECORD_SECONDS
-            capture = CaptureUi.Recording(if (kind == AttemptKind.BACKGROUND) "BACKGROUND" else "QUIET", 0.0, total, kind)
+            capture = CaptureUi.Recording(CaptureFlow.phase(kind, 0.0), 0.0, total, kind)
             val outcome = recorder.record(total) { t, peakDb ->
-                val phase = when {
-                    kind == AttemptKind.BACKGROUND -> "BACKGROUND"
-                    t < PRE_ROLL_SECONDS -> "QUIET"
-                    t < PRE_ROLL_SECONDS + 1.5 -> "CLAP"
-                    else -> "LISTEN"
-                }
+                val phase = CaptureFlow.phase(kind, t)
                 // Hop to the main thread; the capture thread must not touch Compose state.
                 viewModelScope.launch(Dispatchers.Main) {
                     val cur = capture
                     if (cur is CaptureUi.Recording) {
-                        val hold = if (phase == "QUIET") cur.clapPeakDbfs else max(cur.clapPeakDbfs, peakDb)
-                        capture = CaptureUi.Recording(phase, t, total, kind, peakDb, hold)
+                        capture = CaptureUi.Recording(phase, t, total, kind, peakDb, CaptureFlow.clapPeakHold(phase, cur.clapPeakDbfs, peakDb))
                     }
                 }
             }
-            capture = when (outcome) {
-                is MeasurementRecorder.Outcome.Cancelled -> CaptureUi.Problem("Capture ${outcome.reason.lowercase()}; nothing was saved.")
-                is MeasurementRecorder.Outcome.Failed -> CaptureUi.Problem(outcome.message)
-                is MeasurementRecorder.Outcome.Completed -> {
-                    capture = CaptureUi.Analyzing
-                    onCompleted(outcome)
-                }
+            capture = CaptureFlow.problemFor(outcome) ?: run {
+                capture = CaptureUi.Analyzing
+                onCompleted(outcome as MeasurementRecorder.Outcome.Completed)
             }
         }
     }
@@ -371,20 +360,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // One failing session must not stop the others; failures are reported, not swallowed.
             val failures = mutableListOf<String>()
             try {
-                sessionIds.distinct().forEach { id ->
-                    try {
-                        analysis.reanalyzeSession(id, analysisConfig)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        failures += "${store.session(id)?.name ?: id}: ${e.message ?: e::class.simpleName}"
-                    }
+                CaptureFlow.reanalyzeEach(sessionIds, failures, { store.session(it)?.name }) { id ->
+                    analysis.reanalyzeSession(id, analysisConfig)
                 }
             } finally {
                 withContext(NonCancellable + Dispatchers.Main) {
                     reanalyzing = false
-                    reanalysisError = failures.takeIf { it.isNotEmpty() }
-                        ?.joinToString("\n", prefix = "Re-analysis failed for:\n")
+                    reanalysisError = CaptureFlow.reanalysisMessage(failures)
                     changed()
                 }
             }
