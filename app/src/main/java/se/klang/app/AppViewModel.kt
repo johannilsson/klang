@@ -216,6 +216,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (editingBlocked) return false
         viewModelScope.launch {
             val removed = withContext(Dispatchers.IO) {
+                // Already gone (a repeated tap): nothing to do.
+                if (store.room(roomId)?.positions?.any { it.id == positionId } != true) return@withContext emptySet()
                 val ids = store.positionAttempts(roomId, positionId).values.flatten().map { it.id }.toSet()
                 store.deletePosition(roomId, positionId)
                 ids
