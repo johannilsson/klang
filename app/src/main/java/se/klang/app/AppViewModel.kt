@@ -281,10 +281,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         capture = CaptureUi.Problem("Microphone permission is needed to record a measurement. Nothing is recorded outside a measurement.")
     }
 
-    fun reanalyze(sessionId: String) {
+    /** True while [reanalyze] runs; screens disable their re-analyse buttons meanwhile. */
+    var reanalyzing by mutableStateOf(false)
+        private set
+
+    fun reanalyze(sessionId: String) = reanalyze(listOf(sessionId))
+
+    /**
+     * Analyses every impulse attempt in [sessionIds] that has no result for the current algorithm
+     * version. Appends results; recordings and older results are kept. Bumps [revision] when done,
+     * so open comparisons are rebuilt.
+     */
+    fun reanalyze(sessionIds: List<String>) {
+        if (reanalyzing || sessionIds.isEmpty()) return
+        reanalyzing = true
         viewModelScope.launch(Dispatchers.Default) {
-            analysis.reanalyzeSession(sessionId, analysisConfig)
-            withContext(Dispatchers.Main) { changed() }
+            try {
+                sessionIds.distinct().forEach { analysis.reanalyzeSession(it, analysisConfig) }
+            } finally {
+                withContext(Dispatchers.Main) { reanalyzing = false; changed() }
+            }
         }
     }
 
