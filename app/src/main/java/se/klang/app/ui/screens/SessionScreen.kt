@@ -55,6 +55,7 @@ import se.klang.app.ui.ScreenPadding
 import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
+import se.klang.app.ui.displayedT20
 import se.klang.app.ui.fmt
 import se.klang.app.ui.stateColor
 import se.klang.app.ui.stateLabel
@@ -141,7 +142,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
             val here = attempts.filter { it.positionId == p.id }
             val impulses = here.filter { it.kind == AttemptKind.IMPULSE }
             val backgrounds = here.filter { it.kind == AttemptKind.BACKGROUND }
-            val usable = impulses.count { a -> a.latestAnalysis()?.bands?.any { it.centerHz in setOf(500, 1000, 2000) && it.t20 != null } == true }
+            val usable = impulses.count { a -> a.latestAnalysis()?.bands?.any { it.centerHz in setOf(500, 1000, 2000) && displayedT20(it) != null } == true }
             val done = usable >= TARGET_ATTEMPTS && backgrounds.isNotEmpty()
             Card(Modifier.fillMaxWidth()) {
                 ListItem(
@@ -241,7 +242,7 @@ private fun AttemptRow(a: CaptureAttempt, onClick: () -> Unit) {
 
 @Composable
 private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
-    val value = if (b.state == QualityState.INVALID) null else b.t20?.seconds
+    val value = displayedT20(b)?.seconds
     val description = "${b.centerHz} Hz, ${stateLabel(b.state)}" + (value?.let { ", ${fmt(it)} seconds" } ?: "")
     Column(
         modifier.clearAndSetSemantics { contentDescription = description },
