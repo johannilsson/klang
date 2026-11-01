@@ -61,9 +61,15 @@ const val PROTOCOL_FOOTNOTE =
 fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) {
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val room = vm.room(roomId) ?: return
-    val sessions = vm.sessions(roomId)
+    val allSessions = vm.sessions(roomId)
+    val sessions = allSessions.filter { vm.showArchivedSessions || !it.archived }
 
     LazyColumn(modifier.fillMaxSize(), contentPadding = FabScreenPadding) {
+        if (room.archived) item {
+            ArchivedBanner("This room is archived: hidden from the room list, with all sessions and recordings kept.") {
+                vm.setRoomArchived(roomId, false)
+            }
+        }
         if (room.notes.isNotBlank()) item {
             Text(
                 room.notes,
@@ -72,7 +78,7 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
-        if (room.positions.isEmpty() || sessions.isEmpty()) item {
+        if (room.positions.isEmpty() || allSessions.isEmpty()) item {
             Card(
                 Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
@@ -107,7 +113,13 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
 
         item { SectionHeader("Sessions") }
         if (sessions.isEmpty()) item {
-            EmptyText(if (room.positions.isEmpty()) "Add a position first, then start a baseline." else "No sessions yet. Start with a baseline.")
+            EmptyText(
+                when {
+                    allSessions.isNotEmpty() -> "All sessions are archived. Show them from the ⋮ menu."
+                    room.positions.isEmpty() -> "Add a position first, then start a baseline."
+                    else -> "No sessions yet. Start with a baseline."
+                },
+            )
         }
         else item {
             Card(Modifier.fillMaxWidth()) {
@@ -116,7 +128,10 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                     ListItem(
                         headlineContent = { Text(s.name) },
                         supportingContent = {
-                            Text((if (s.intervention.isNotBlank()) "${s.intervention} · " else "") + "${vm.attempts(s.id).size} recordings")
+                            Text(
+                                (if (s.archived) "Archived · " else "") + (if (s.intervention.isNotBlank()) "${s.intervention} · " else "") +
+                                    "${vm.attempts(s.id).size} recordings",
+                            )
                         },
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -129,6 +144,20 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
                     )
                 }
             }
+        }
+    }
+}
+
+/** Shown at the top of an archived room or session, with the way back. */
+@Composable
+fun ArchivedBanner(text: String, onUnarchive: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onUnarchive) { Text("Unarchive") }
         }
     }
 }

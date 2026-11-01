@@ -1,6 +1,8 @@
 package se.klang.app.ui.screens
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +54,7 @@ import kotlinx.coroutines.launch
 import se.klang.app.AppViewModel
 import se.klang.app.Screen
 import se.klang.app.Sheet
+import se.klang.app.ui.ConfirmPermanentDelete
 import se.klang.app.ui.rememberWithMicPermission
 import se.klang.sessions.RoomConditions
 import se.klang.sessions.Session
@@ -61,6 +65,14 @@ import se.klang.sessions.SessionKind
 fun SheetHost(vm: AppViewModel) {
     val close = { vm.sheet = null }
     val practice = rememberWithMicPermission(onDenied = { vm.permissionDenied() }) { vm.startPractice() }
+    vm.importOutcome?.let { outcome ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissImportOutcome() },
+            title = { Text(if (outcome.succeeded) "Import finished" else "Import failed") },
+            text = { Text(outcome.message) },
+            confirmButton = { TextButton(onClick = { vm.dismissImportOutcome() }) { Text("OK") } },
+        )
+    }
     when (val s = vm.sheet) {
         null -> Unit
         Sheet.NewRoom -> NewRoomSheet(vm, close)
@@ -78,26 +90,65 @@ fun SheetHost(vm: AppViewModel) {
 /** The ⋮ menu in the top bar: secondary actions per screen, so the screens themselves stay short. */
 @Composable
 fun TopBarMenu(vm: AppViewModel, screen: Screen) {
+    @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     fun export(roomId: String) {
         scope.launch { context.startActivity(Intent.createChooser(vm.exportRoom(roomId, emptyList()), "Export room")) }
     }
+    // A permanent delete waits for this confirmation; archive needs none (it is undone from the same menu).
+    var confirmDelete by remember { mutableStateOf<Screen?>(null) }
+    val canDelete = !vm.reanalyzing
+    // System file picker: the user grants access to one file, so no storage permission is needed.
+    val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importExport(uri)
+    }
     val items: List<Pair<String, () -> Unit>> = when (screen) {
-        Screen.Home -> listOf("Microphone check" to { vm.navigate(Screen.Capability) })
-        is Screen.RoomDetail -> listOf(
-            "Measurement protocol" to { vm.sheet = Sheet.Protocol },
-            "Compare sessions" to { vm.navigate(Screen.Compare(screen.roomId)) },
-            "Export all" to { export(screen.roomId) },
-            "Microphone check" to { vm.navigate(Screen.Capability) },
-        )
+        Screen.Home -> {
+            val archived = vm.rooms().count { it.archived }
+            listOfNotNull(
+                "Microphone check" to { vm.navigate(Screen.Capability) },
+                if (vm.importing) null else "Import export…" to {
+                    pickExport.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                },
+                if (archived > 0 || vm.showArchivedRooms) {
+                    (if (vm.showArchivedRooms) "Hide archived rooms" else "Show archived rooms ($archived)") to
+                        { vm.showArchivedRooms = !vm.showArchivedRooms }
+                } else null,
+            )
+        }
+        is Screen.RoomDetail -> {
+            val room = vm.room(screen.roomId)
+            val archivedSessions = vm.sessions(screen.roomId).count { it.archived }
+            listOfNotNull(
+                "Measurement protocol" to { vm.sheet = Sheet.Protocol },
+                "Compare sessions" to { vm.navigate(Screen.Compare(screen.roomId)) },
+                "Export all" to { export(screen.roomId) },
+                if (archivedSessions > 0 || vm.showArchivedSessions) {
+                    (if (vm.showArchivedSessions) "Hide archived sessions" else "Show archived sessions ($archivedSessions)") to
+                        { vm.showArchivedSessions = !vm.showArchivedSessions }
+                } else null,
+                "Microphone check" to { vm.navigate(Screen.Capability) },
+                room?.let {
+                    if (it.archived) "Unarchive room" to { vm.setRoomArchived(it.id, false) }
+                    else "Archive room (hide, keep data)" to { vm.setRoomArchived(it.id, true); vm.back() }
+                },
+                room?.takeIf { canDelete }?.let { "Delete room permanently…" to { confirmDelete = screen } },
+            )
+        }
         is Screen.SessionDetail -> {
-            val roomId = vm.session(screen.sessionId)?.roomId
+            val session = vm.session(screen.sessionId)
+            val roomId = session?.roomId
             listOfNotNull(
                 "How to clap" to { vm.sheet = Sheet.HowToClap },
                 "Session conditions" to { vm.sheet = Sheet.Conditions(screen.sessionId) },
                 roomId?.let { "Add position to room" to { vm.sheet = Sheet.AddPosition(it) } },
                 "Measurement protocol" to { vm.sheet = Sheet.Protocol },
+                session?.let {
+                    if (it.archived) "Unarchive session" to { vm.setSessionArchived(it.id, false) }
+                    else "Archive session (hide, keep data)" to { vm.setSessionArchived(it.id, true); vm.back() }
+                },
+                session?.takeIf { canDelete }?.let { "Delete session permanently…" to { confirmDelete = screen } },
             )
         }
         else -> emptyList()
@@ -113,6 +164,34 @@ fun TopBarMenu(vm: AppViewModel, screen: Screen) {
                 DropdownMenuItem(text = { Text(label) }, onClick = { open = false; action() })
             }
         }
+    }
+    when (val target = confirmDelete) {
+        is Screen.RoomDetail -> {
+            val room = vm.room(target.roomId)
+            if (room != null) {
+                val sessions = vm.sessions(room.id)
+                ConfirmPermanentDelete(
+                    title = "Delete room?",
+                    what = "“${room.name}”, its ${sessions.size} session(s) and ${sessions.sumOf { vm.attempts(it.id).size }} recording(s)",
+                    onDelete = { confirmDelete = null; vm.deleteRoom(room.id) },
+                    onExportFirst = { confirmDelete = null; export(room.id) },
+                    onDismiss = { confirmDelete = null },
+                )
+            }
+        }
+        is Screen.SessionDetail -> {
+            val session = vm.session(target.sessionId)
+            if (session != null) {
+                ConfirmPermanentDelete(
+                    title = "Delete session?",
+                    what = "“${session.name}” and its ${vm.attempts(session.id).size} recording(s)",
+                    onDelete = { confirmDelete = null; vm.deleteSession(session.id) },
+                    onExportFirst = { confirmDelete = null; export(session.roomId) },
+                    onDismiss = { confirmDelete = null },
+                )
+            }
+        }
+        else -> Unit
     }
 }
 

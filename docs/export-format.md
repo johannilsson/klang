@@ -36,7 +36,8 @@ The same table is embedded in every export as `units`.
   "disclaimer": "Comparative, position-specific decay estimates ...",
   "room": {
     "id": "uuid", "name": "Kitchen", "notes": "", "createdAtEpochMs": 0,
-    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "", "clapSpot": "" } ]
+    "positions": [ { "id": "uuid", "name": "Seat A", "placementNotes": "", "clapSpot": "" } ],
+    "archived": false
   },
   "sessions": [ {
     "session": {
@@ -44,7 +45,8 @@ The same table is embedded in every export as `units`.
       "kind": "BASELINE | REPEAT_BASELINE | TREATMENT",
       "intervention": "",
       "conditions": { "doorsAndWindows": "", "furnishings": "", "occupancy": "", "appliancesOff": true, "sourcePosition": "", "notes": "" },
-      "createdAtEpochMs": 0
+      "createdAtEpochMs": 0,
+      "archived": false
     },
     "attempts": [ CaptureAttempt, ... ]
   } ],
@@ -57,6 +59,10 @@ where the person claps for that position (distance and direction from the phone)
 position so every session repeats it. `conditions.sourcePosition` is the older per-session clap source
 description: the app no longer writes it, but sessions recorded before the change keep it. Both fields are
 additive with an empty default, so the schema version stays 1; readers should treat a missing `clapSpot` as empty.
+
+`archived` (room and session, optional, default `false`) is set when the user archived the item in
+the app: it is hidden from lists and comparison pickers but all its data is kept. An export of a room
+always contains every session, archived or not. Readers that do not know the field can ignore it.
 
 ### `CaptureAttempt`
 
@@ -133,6 +139,43 @@ extended_band, baseline_median_t20_s, baseline_iqr_s, baseline_usable, baseline_
 treatment_median_t20_s, treatment_iqr_s, treatment_usable, treatment_attempted,
 repeat_median_t20_s, change_s, percent_reduction, variability_s, verdict, notes, policy_version,
 algorithm_version`.
+
+## Import
+
+The app's Home menu (*Import export…*) reads an export ZIP back through the system file picker
+(`ActivityResultContracts.OpenDocument`, no storage permission); `se.klang.sessions.Importer` does
+the work and can be used on a desktop too. This is the way to move data to a new phone or restore it.
+
+* **Accepted**: `schema` = `klang.export` and `schemaVersion` = 1. Anything else is rejected with an
+  error naming the schema or version found, before anything is written. Unknown JSON fields and
+  unknown ZIP entries are ignored. `summary.csv`, `comparison.csv` and the exported `comparisons` are
+  not read: comparisons are recomputed from the attempts.
+* **Read**: `room` (with positions, including `placementNotes` and `clapSpot`), `sessions[].session` and `sessions[].attempts` with every
+  `AnalysisRecord`, and `recordings/<sessionId>/<attemptId>.wav`, copied byte for byte into the
+  store. An imported attempt's `recordingPath` is set to the store's own path for that recording
+  (`sessions/<sessionId>/recordings/<attemptId>.wav`, the same value the app writes). An attempt whose
+  WAV is missing from the ZIP is not imported (it would point to a missing file) and is reported.
+* **Rejected archives**: entry names that are absolute, contain `..`, a backslash or a drive letter
+  (zip-slip); ids that are not `[A-Za-z0-9-]+`; a session whose `roomId` is not the exported room; an
+  attempt listed under another session; duplicated ids or entries. Entry names are never used as file
+  paths.
+
+### Id collisions
+
+Import never overwrites or removes a recording or an analysis. With ids already in the store:
+
+| Item already present | What import does |
+|---|---|
+| Room | Keeps the local name, notes and `archived` flag; adds positions whose ids are missing. A position already present keeps its local name, placement notes and clap spot. |
+| Session (same room) | Keeps the local metadata; adds attempts whose ids are missing. |
+| Session (id belongs to a session of another room) | Skips the session and its attempts; reported. |
+| Attempt, identical WAV bytes | Keeps the local record (note, events, sequence); appends the exported analyses it does not already have (exact match on the whole `AnalysisRecord`), kept in `analyzedAtEpochMs` order. |
+| Attempt, different or missing WAV | Skips it, including its analyses; reported. |
+| WAV file without an attempt record (an interrupted import) | Reused if the bytes are identical, otherwise the attempt is skipped and reported. |
+
+So importing the same file twice changes nothing the second time, an interrupted import can be
+repeated, and exports from two phones of the same room merge without losing anything. The result
+message lists what was added, what was already present and everything skipped with the reason.
 
 ## Compatibility
 

@@ -84,6 +84,11 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
         contentPadding = ScreenPadding,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (session.archived) item {
+            ArchivedBanner("This session is archived: hidden from the session list and comparisons, with its recordings kept.") {
+                vm.setSessionArchived(sessionId, false)
+            }
+        }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
