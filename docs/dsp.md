@@ -190,12 +190,13 @@ Implemented in `core/sessions` (`Comparator`, `ComparisonPolicy` 0.1.0, `RepeatP
   method-dependent decay estimates, not an intrinsic RT60 of the room.
 * Handclaps vary in spectrum and direction from clap to clap. Weak bands are expected to fail the
   margin gate, and they stay unavailable.
-* **250 Hz at short decays on the noise fixture (issue #11).** The table in
-  [validation-synthetic.md](validation-synthetic.md) shows 1.088 (0.875–1.244) at T60 = 0.3 s. That
-  is the mean of only 10 seeds. Over 200 seeds (`LowBandBiasDiagnosticTest`, opt-in, see its header)
-  the same configuration gives **1.029** on average (SD 0.121, standard error 0.009, median 1.017,
-  range 0.775–1.368). Seeds 1–10 happen to sit high, and 0.059 above the 200-seed mean is
-  1.6 standard errors of a 10-seed mean. At T60 = 0.5 s, 200 seeds give 1.006 (SD 0.085). The
+* **250 Hz at short decays on the noise fixture (issue #11).** With 10 seeds per row, the synthetic
+  report showed 1.088 (0.875–1.244) at T60 = 0.3 s. The report now uses 50 seeds and shows the
+  spread: 1.057 ± 0.121 ([validation-synthetic.md](validation-synthetic.md)). Over 200 seeds
+  (`LowBandBiasDiagnosticTest`, opt-in, see its header) the same configuration gives **1.029** on
+  average (SD 0.121, standard error 0.009, median 1.017, range 0.775–1.368). The 10-seed value sat
+  1.6 standard errors of a 10-seed mean above that, and the 50-seed value sits 1.6 standard errors
+  of a 50-seed mean above it: sampling scatter. At T60 = 0.5 s, 200 seeds give 1.006 (SD 0.085). The
   diagnostic also isolates each candidate cause:
   * *Truncation search and envelope window*: these do not contribute. The envelope only feeds the
     margin and `tc`, never the EDC. A plain Schroeder integral of the same band signal to 0.6 s

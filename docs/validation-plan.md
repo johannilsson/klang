@@ -10,10 +10,11 @@ derived from the generating envelope).
 * ✅ Filter: 0 dB at fc, −3 dB at the edges, > 30 dB rejection one octave beyond each edge,
   44.1/48 kHz, forward and time-reversed.
 * ✅ Clean deterministic fixtures (damped tones), T60 0.3–1.2 s, all bands, 3 seeds: T20 error < 5 %
-  (observed ≤ 0.4 % at 500–4000 Hz and ≤ 2.1 % at 250 Hz). See [validation-synthetic.md](validation-synthetic.md).
+  (in the 50-seed report: ≤ 0.5 % at 500–4000 Hz and ≤ 2.2 % at 250 Hz). See [validation-synthetic.md](validation-synthetic.md).
 * ✅ Decaying-noise fixtures, 10 seeds, T60 0.4 and 0.8 s: mean within 3 % (6 % at 250 Hz), and every
   realisation measurable. Single realisations scatter by several percent, as real impulse responses
-  do. At T60 = 0.3 s the 250 Hz mean reads ~9 % high (documented limitation, not a test target).
+  do. At T60 = 0.3 s the 250 Hz mean reads 3–6 % high with ~12 % scatter per realisation: fixture
+  scatter, not analyser bias (issue #11, [dsp.md](dsp.md#known-limitations); not a test target).
 * ✅ Frequency-dependent decay resolved per band.
 * ✅ Gain invariance (×0.1, ×0.5, ×1.8): identical states and T20 within 0.01 %.
 * ✅ Added noise: unbiased at ~40 dB margin; at −30 dBFS background every band is withheld with
