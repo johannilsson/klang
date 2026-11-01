@@ -12,6 +12,7 @@ others **only when the task touches them**, not up front:
 | summaries, hints, Sabine | `docs/summaries.md` |
 | the attempt screen, verdicts, the recording graph | `docs/attempt-report.md` |
 | signing, APKs | `docs/signing.md` |
+| colours / the visual style | `docs/design-tokens.md` (edit `design/tokens.json`, run `scripts/gen_tokens.py`; never edit `Color.kt` by hand) |
 
 ## Layout
 
