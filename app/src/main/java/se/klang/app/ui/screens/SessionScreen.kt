@@ -98,12 +98,13 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                 }
                 val stale = attempts.count { it.kind == AttemptKind.IMPULSE && it.analysis(AnalysisConfiguration.VERSION) == null }
                 if (stale > 0) {
-                    FilledTonalButton(onClick = { vm.reanalyze(sessionId) }) {
+                    FilledTonalButton(onClick = { vm.reanalyze(sessionId) }, enabled = !vm.reanalyzing) {
                         Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
                         Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                         Text("Analyse $stale recording(s) with algorithm ${AnalysisConfiguration.VERSION}")
                     }
                 }
+                vm.reanalysisError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 CapturePanel(vm) { id -> attempts.firstOrNull { it.id == id }?.let { LastAttemptSummary(it) } }
                 OutlinedCard(onClick = { vm.sheet = Sheet.HowToClap }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                     ListItem(

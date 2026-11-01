@@ -88,7 +88,7 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
             item { Text("Choose a baseline and a treatment session.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         } else {
             if (comparison.staleAnalyses.isNotEmpty()) item {
-                StaleAnalysesCard(comparison.staleAnalyses, comparison.algorithmVersion, vm.reanalyzing) {
+                StaleAnalysesCard(comparison.staleAnalyses, comparison.algorithmVersion, vm.reanalyzing, vm.reanalysisError) {
                     vm.reanalyze(comparison.staleAnalyses.map { it.sessionId })
                 }
             }
@@ -134,7 +134,7 @@ fun CompareScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifie
  * different versions are never mixed. Offers a re-analysis, which appends results.
  */
 @Composable
-private fun StaleAnalysesCard(stale: List<AnalysisCoverage>, version: String, running: Boolean, onReanalyze: () -> Unit) {
+private fun StaleAnalysesCard(stale: List<AnalysisCoverage>, version: String, running: Boolean, error: String?, onReanalyze: () -> Unit) {
     SectionCard("Re-analysis needed") {
         stale.forEach { c ->
             val older = c.otherVersions.entries.joinToString(" and ") { (v, n) -> "$n with algorithm $v" }
@@ -154,6 +154,7 @@ private fun StaleAnalysesCard(stale: List<AnalysisCoverage>, version: String, ru
         Button(enabled = !running, onClick = onReanalyze, modifier = Modifier.padding(top = 8.dp)) {
             Text(if (running) "Re-analysing…" else "Re-analyse with algorithm $version")
         }
+        if (error != null) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }
 

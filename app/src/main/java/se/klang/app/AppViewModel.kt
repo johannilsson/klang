@@ -10,8 +10,10 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -317,6 +319,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var reanalyzing by mutableStateOf(false)
         private set
 
+    /** Sessions whose last re-analysis failed, with the error; null when the last run succeeded. */
+    var reanalysisError by mutableStateOf<String?>(null)
+        private set
+
     fun reanalyze(sessionId: String) = reanalyze(listOf(sessionId))
 
     /**
@@ -327,11 +333,27 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun reanalyze(sessionIds: List<String>) {
         if (reanalyzing || sessionIds.isEmpty()) return
         reanalyzing = true
+        reanalysisError = null
         viewModelScope.launch(Dispatchers.Default) {
+            // One failing session must not stop the others; failures are reported, not swallowed.
+            val failures = mutableListOf<String>()
             try {
-                sessionIds.distinct().forEach { analysis.reanalyzeSession(it, analysisConfig) }
+                sessionIds.distinct().forEach { id ->
+                    try {
+                        analysis.reanalyzeSession(id, analysisConfig)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failures += "${store.session(id)?.name ?: id}: ${e.message ?: e::class.simpleName}"
+                    }
+                }
             } finally {
-                withContext(Dispatchers.Main) { reanalyzing = false; changed() }
+                withContext(NonCancellable + Dispatchers.Main) {
+                    reanalyzing = false
+                    reanalysisError = failures.takeIf { it.isNotEmpty() }
+                        ?.joinToString("\n", prefix = "Re-analysis failed for:\n")
+                    changed()
+                }
             }
         }
     }
