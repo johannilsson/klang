@@ -40,6 +40,9 @@ android {
             // Robolectric and Compose UI tests on the JVM need the merged resources and manifest.
             isIncludeAndroidResources = true
             all {
+                // Robolectric's Android SDK 36 runtime only starts on Java 21 or newer, while the app
+                // is compiled for Java 17 (and CI builds on JDK 17). Run only the unit-test JVM on 21.
+                it.javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
                 // Robolectric's SDK 36 runtime sets FileDescriptor internals through jdk.internal.access.
                 it.jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
             }

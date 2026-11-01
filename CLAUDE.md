@@ -53,6 +53,9 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   dependencies. It is transient: retry with backoff (15 s, 30 s, 45 s…), e.g. loop the Gradle command while
   its output contains `429`. A 429 is not a build failure in the code.
 - JDK in the sandbox is 21; the code targets Java 17 bytecode (`jvmTarget` 17) so it also builds on JDK 17 in CI.
+  The app unit tests are the exception: Robolectric's SDK 36 runtime needs Java 21, so `app/build.gradle.kts`
+  runs only the unit-test JVM on a Java 21 toolchain and CI installs both JDKs. A green local run on JDK 21
+  does not prove the JDK 17 build: check CI.
 - Unzip user-provided exports into a **new** directory and never `rm -rf` (the safety check blocks it, and it
   is not needed).
 

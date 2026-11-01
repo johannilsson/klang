@@ -12,7 +12,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          # 21 for the app unit tests (Robolectric's SDK 36 runtime), 17 last so it is the default
+          # JDK: the build itself keeps running on 17.
+          java-version: |
+            21
+            17
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Core tests (DSP, sessions, export)
