@@ -42,7 +42,7 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     fun room(id: String): Room? = roomFile(id).takeIf { it.exists() }?.let { json.decodeFromString(Room.serializer(), it.readText()) }
 
     fun rooms(): List<Room> = File(root, "rooms").listFiles { f -> f.extension == "json" }.orEmpty()
-        .map { json.decodeFromString(Room.serializer(), it.readText()) }.sortedBy { it.createdAtEpochMs }
+        .map { json.decodeFromString(Room.serializer(), it.readText()) }.sortedWith(compareBy({ it.createdAtEpochMs }, { it.id }))
 
     fun addPosition(roomId: String, name: String, placementNotes: String = "", clapSpot: String = ""): MeasurementPosition {
         val room = requireNotNull(room(roomId)) { "No room $roomId" }
@@ -82,7 +82,8 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         ?.let { json.decodeFromString(Session.serializer(), it.readText()) }
 
     fun sessions(roomId: String? = null): List<Session> = File(root, "sessions").listFiles { f -> f.isDirectory }.orEmpty()
-        .mapNotNull { session(it.name) }.filter { roomId == null || it.roomId == roomId }.sortedBy { it.createdAtEpochMs }
+        .mapNotNull { session(it.name) }.filter { roomId == null || it.roomId == roomId }
+        .sortedWith(compareBy({ it.createdAtEpochMs }, { it.id }))
 
     fun setSessionArchived(sessionId: String, archived: Boolean): Session {
         val s = requireNotNull(session(sessionId)) { "No session $sessionId" }
@@ -140,7 +141,7 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     fun attempts(sessionId: String): List<CaptureAttempt> = File(sessionDir(sessionId), "attempts")
         .listFiles { f -> f.extension == "json" }.orEmpty()
         .map { json.decodeFromString(CaptureAttempt.serializer(), it.readText()) }
-        .sortedWith(compareBy({ it.createdAtEpochMs }, { it.sequence }))
+        .sortedWith(compareBy({ it.createdAtEpochMs }, { it.sequence }, { it.id }))
 
     fun recordingFile(a: CaptureAttempt): File = File(root, a.recordingPath)
 

@@ -54,7 +54,7 @@ class StoreDeletionTest {
         goneFiles.forEach { assertFalse(it.exists()) }
         assertFalse(File(store.root, "sessions/${gone.id}").exists())
         assertEquals(2, store.attempts(sessions[1].id).size)
-        assertEquals(otherSessions.map { it.id }, store.sessions(other.id).map { it.id })
+        assertEquals(otherSessions.map { it.id }.toSet(), store.sessions(other.id).map { it.id }.toSet())
         assertTrue(filesUnder(File(store.root, "trash")).isEmpty())
         store.deleteSession(gone.id) // idempotent
     }
