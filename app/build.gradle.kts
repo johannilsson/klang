@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "se.klang.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "se.klang.app"
