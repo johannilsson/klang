@@ -90,6 +90,13 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    inconclusive*.
 6. **Export**: a ZIP with `results.json`, `summary.csv`, `comparison.csv` and the original WAVs,
    shared through the system share sheet ([schema](docs/export-format.md)).
+7. **Edit and delete**. Rooms (*Edit room* / *Delete room* in the room's menu), positions (tap one
+   on the room screen), sessions (*Edit session* / *Delete session* in the session's menu, or *Edit*
+   in its conditions) and recordings (tap one, background recordings included: add a note or
+   delete it). Edits change only descriptions (names, notes, placement, clap spot, session type,
+   intervention, conditions); recordings and analyses are never edited. Deleting removes everything
+   underneath (a position takes its recordings in every session with it) after a confirmation that
+   says how much will go. There is no undo: export first to keep a copy.
 
 ## Design notes
 
@@ -106,7 +113,8 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
   −5…−25 dB and extrapolated to 60 dB, EDT as a secondary result, and the quality gates.
 * **Persistence**: app-private JSON plus the original WAVs, written atomically. Every analysis is
   appended with its algorithm version and full configuration, so re-analysis never replaces a
-  recording or an earlier result.
+  recording or an earlier result. Only descriptive fields are editable; a recording leaves the
+  store only when the user deletes it (or the session, position or room it belongs to).
 * **Comparison**: a descriptive, versioned rule, not a significance test. There are no confidence
   percentages and no combined room score.
 

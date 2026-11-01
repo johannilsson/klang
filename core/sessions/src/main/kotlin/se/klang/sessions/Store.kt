@@ -16,6 +16,10 @@ import java.util.UUID
  * sessions/<sessionId>/attempts/<attemptId>.json
  * sessions/<sessionId>/recordings/<attemptId>.wav    (original, never overwritten)
  * ```
+ *
+ * Descriptive fields (names, notes, conditions) can be edited. Recordings and analysis results are
+ * never edited: they can only be deleted, together with what they belong to. Deletion is always an
+ * explicit user action, never automatic.
  */
 class SessionStore(val root: File, private val clock: () -> Long = System::currentTimeMillis) {
     private val json = Json { prettyPrint = true; encodeDefaults = true; ignoreUnknownKeys = true }
@@ -40,6 +44,41 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         return p
     }
 
+    /** Edits a room's name and notes. Positions and sessions are untouched. */
+    fun updateRoom(roomId: String, name: String, notes: String): Room {
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        return room.copy(name = name, notes = notes).also(::saveRoom)
+    }
+
+    /** Edits a position's descriptive fields. Its id, and so its recordings, stay the same. */
+    fun updatePosition(roomId: String, positionId: String, name: String, placementNotes: String, clapSpot: String): MeasurementPosition {
+        val room = requireNotNull(room(roomId)) { "No room $roomId" }
+        val old = requireNotNull(room.positions.firstOrNull { it.id == positionId }) { "No position $positionId" }
+        val p = old.copy(name = name, placementNotes = placementNotes, clapSpot = clapSpot)
+        saveRoom(room.copy(positions = room.positions.map { if (it.id == positionId) p else it }))
+        return p
+    }
+
+    /** Recordings made at a position, across all of the room's sessions. */
+    fun attemptsAtPosition(roomId: String, positionId: String): List<CaptureAttempt> =
+        sessions(roomId).flatMap { attempts(it.id) }.filter { it.positionId == positionId }
+
+    /**
+     * Removes a position and every recording made at it in any of the room's sessions. Recordings are
+     * deleted before the position, so an interruption never leaves recordings at an unknown position.
+     */
+    fun deletePosition(roomId: String, positionId: String) {
+        attemptsAtPosition(roomId, positionId).forEach(::deleteAttempt)
+        val room = room(roomId) ?: return
+        saveRoom(room.copy(positions = room.positions.filterNot { it.id == positionId }))
+    }
+
+    /** Removes a room with all its sessions, recordings and analyses. */
+    fun deleteRoom(roomId: String) {
+        sessions(roomId).forEach { deleteSession(it.id) }
+        roomFile(roomId).delete()
+    }
+
     // ---- Sessions ----
     fun createSession(
         roomId: String, name: String, kind: SessionKind,
@@ -53,6 +92,24 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
 
     fun session(id: String): Session? = File(sessionDir(id), "session.json").takeIf { it.exists() }
         ?.let { json.decodeFromString(Session.serializer(), it.readText()) }
+
+    /** Edits a session's descriptive fields. Its recordings and their analyses are untouched. */
+    fun updateSession(
+        sessionId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions,
+    ): Session {
+        val s = requireNotNull(session(sessionId)) { "No session $sessionId" }
+        return s.copy(name = name, kind = kind, intervention = intervention, conditions = conditions).also(::saveSession)
+    }
+
+    /**
+     * Removes a session with all its recordings and analyses. session.json goes first, so an
+     * interrupted deletion leaves no half-listed session behind; the rest of the directory follows.
+     */
+    fun deleteSession(sessionId: String) {
+        val dir = sessionDir(sessionId)
+        File(dir, "session.json").delete()
+        dir.deleteRecursively()
+    }
 
     fun sessions(roomId: String? = null): List<Session> = File(root, "sessions").listFiles { f -> f.isDirectory }.orEmpty()
         .mapNotNull { session(it.name) }.filter { roomId == null || it.roomId == roomId }.sortedBy { it.createdAtEpochMs }
@@ -98,6 +155,9 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         File(sessionDir(a.sessionId), "attempts/${a.id}.json").delete()
         recordingFile(a).delete()
     }
+
+    /** Edits an attempt's free-text note. The recording and its analyses are never edited. */
+    fun updateAttemptNote(a: CaptureAttempt, note: String): CaptureAttempt = a.copy(note = note).also(::saveAttempt)
 
     fun appendAnalysis(a: CaptureAttempt, record: AnalysisRecord): CaptureAttempt =
         a.copy(analyses = a.analyses + record).also(::saveAttempt)

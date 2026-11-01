@@ -180,7 +180,7 @@ fun SessionScreen(vm: AppViewModel, sessionId: String, modifier: Modifier = Modi
                     }
                     backgrounds.forEachIndexed { i, a ->
                         if (i > 0 || impulses.isNotEmpty()) RecordingDivider()
-                        BackgroundRow(a)
+                        BackgroundRow(a) { vm.navigate(Screen.AttemptDetail(sessionId, a.id)) }
                     }
                     Spacer(Modifier.height(8.dp))
                 }
@@ -252,7 +252,7 @@ private fun BandCell(b: BandRecord, modifier: Modifier = Modifier) {
 
 /** A background recording as a two-line list item (72 dp). */
 @Composable
-private fun BackgroundRow(a: CaptureAttempt) {
+private fun BackgroundRow(a: CaptureAttempt, onClick: () -> Unit) {
     val events = a.captureEvents.size
     ListItem(
         leadingContent = { RecordingBadge("${a.sequence}", null) },
@@ -263,7 +263,9 @@ private fun BackgroundRow(a: CaptureAttempt) {
                 color = if (events > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
+        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick),
     )
 }
 
@@ -284,6 +286,6 @@ private fun LastAttemptSummary(a: CaptureAttempt) {
             advice(r.code)?.let { Text("   $it", style = MaterialTheme.typography.bodySmall) }
         }
         if (reasons.isEmpty()) Text("All main bands passed the quality checks.")
-        Text("Rejected attempts are kept for inspection; you can delete them from the attempt page.", style = MaterialTheme.typography.bodySmall)
+        Text("Rejected attempts are kept for inspection; you can add a note or delete them from the attempt page.", style = MaterialTheme.typography.bodySmall)
     }
 }

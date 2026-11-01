@@ -187,4 +187,80 @@ class SessionsTest {
         assertTrue(!Regex("\"[A-Za-z]*(spl|Spl|SPL)[A-Za-z]*\"\\s*:").containsMatchIn(jsonText), "never label levels as SPL")
         assertTrue("dB relative to digital full scale (not dB SPL)" in jsonText)
     }
+
+    @Test
+    fun `editing descriptive fields keeps recordings and analyses`() {
+        val f = fixture()
+        val (s, attempts) = record(f, SessionKind.BASELINE, 0.5, 300, attempts = 1)
+        val p = f.room.positions.first()
+        val a = attempts.first { it.positionId == p.id }
+        val wav = f.store.recordingFile(a).readBytes()
+
+        f.store.updateRoom(f.room.id, "Kitchen / dining", "Tiled floor")
+        f.store.updatePosition(f.room.id, p.id, "Seat by window", "On stand", "2 m, toward the hall")
+        f.store.updateSession(s.id, "First baseline", SessionKind.BASELINE, "", RoomConditions(doorsAndWindows = "closed"))
+        f.store.updateAttemptNote(a, "Dog barked")
+
+        val reopened = SessionStore(f.store.root)
+        val room = reopened.room(f.room.id)!!
+        assertEquals("Kitchen / dining", room.name)
+        assertEquals("Tiled floor", room.notes)
+        assertEquals(listOf(p.id, f.room.positions[1].id, f.room.positions[2].id), room.positions.map { it.id })
+        assertEquals("Seat by window", room.positions.first().name)
+        assertEquals("2 m, toward the hall", room.positions.first().clapSpot)
+        val session = reopened.session(s.id)!!
+        assertEquals("First baseline", session.name)
+        assertEquals("closed", session.conditions.doorsAndWindows)
+        assertEquals(s.createdAtEpochMs, session.createdAtEpochMs)
+        val edited = reopened.attempts(s.id).first { it.id == a.id }
+        assertEquals("Dog barked", edited.note)
+        assertEquals(a.analyses, edited.analyses)
+        assertContentEquals(wav, reopened.recordingFile(edited).readBytes())
+    }
+
+    @Test
+    fun `deleting a position removes only its recordings, in every session`() {
+        val f = fixture()
+        val (s1, _) = record(f, SessionKind.BASELINE, 0.5, 400, attempts = 2)
+        val (s2, _) = record(f, SessionKind.REPEAT_BASELINE, 0.5, 500, attempts = 2)
+        val gone = f.room.positions.first()
+        val doomed = f.store.attemptsAtPosition(f.room.id, gone.id)
+        assertEquals(4, doomed.size)
+
+        f.store.deletePosition(f.room.id, gone.id)
+
+        assertEquals(2, f.store.room(f.room.id)!!.positions.size)
+        assertTrue(f.store.attemptsAtPosition(f.room.id, gone.id).isEmpty())
+        doomed.forEach { assertTrue(!f.store.recordingFile(it).exists()) }
+        listOf(s1, s2).forEach { s ->
+            val left = f.store.attempts(s.id)
+            assertEquals(4, left.size)
+            left.forEach { assertTrue(f.store.recordingFile(it).exists()) }
+        }
+    }
+
+    @Test
+    fun `deleting a session or a room removes everything under it and nothing else`() {
+        val f = fixture()
+        val (s1, a1) = record(f, SessionKind.BASELINE, 0.5, 600, attempts = 1)
+        val (s2, a2) = record(f, SessionKind.REPEAT_BASELINE, 0.5, 700, attempts = 1)
+        val other = f.store.createRoom("Living room")
+        f.store.addPosition(other.id, "Sofa")
+        val os = f.store.createSession(other.id, "Baseline", SessionKind.BASELINE)
+
+        f.store.deleteSession(s1.id)
+        assertNull(f.store.session(s1.id))
+        assertTrue(f.store.attempts(s1.id).isEmpty())
+        a1.forEach { assertTrue(!f.store.recordingFile(it).exists()) }
+        assertEquals(listOf(s2.id), f.store.sessions(f.room.id).map { it.id })
+
+        f.store.deleteRoom(f.room.id)
+        assertNull(f.store.room(f.room.id))
+        assertTrue(f.store.sessions(f.room.id).isEmpty())
+        a2.forEach { assertTrue(!f.store.recordingFile(it).exists()) }
+        assertTrue(!java.io.File(f.store.root, "sessions/${s2.id}").exists())
+
+        assertEquals(listOf(other.id), f.store.rooms().map { it.id })
+        assertEquals(listOf(os.id), f.store.sessions(other.id).map { it.id })
+    }
 }

@@ -60,7 +60,13 @@ sealed interface Sheet {
     data object Protocol : Sheet
     data object HowToClap : Sheet
     data class Conditions(val sessionId: String) : Sheet
+    data class EditRoom(val roomId: String) : Sheet
+    data class EditPosition(val roomId: String, val positionId: String) : Sheet
+    data class EditSession(val sessionId: String) : Sheet
 }
+
+/** A destructive action waiting for the user's confirmation in a dialog. */
+data class ConfirmDelete(val title: String, val text: String, val onConfirm: () -> Unit)
 
 sealed interface CaptureUi {
     data object Idle : CaptureUi
@@ -112,6 +118,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     var sheet by mutableStateOf<Sheet?>(null)
 
+    var confirmDelete by mutableStateOf<ConfirmDelete?>(null)
+
     fun navigate(s: Screen) { sheet = null; backStack += s }
     fun back(): Boolean {
         if (isCapturing) return true // do not leave mid-capture
@@ -156,7 +164,84 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Conditions of the room's latest session, to prefill the next one (the protocol keeps them the same). */
     fun lastConditions(roomId: String): RoomConditions? = sessions(roomId).lastOrNull()?.conditions?.copy(sourcePosition = "")
-    fun deleteAttempt(a: CaptureAttempt) { store.deleteAttempt(a); changed() }
+
+    // ---------------------------------------------------------------- edit & delete
+    // Only descriptive fields are editable. Recordings and analyses are never edited, only deleted
+    // with what they belong to, and only after the user confirms (see [askDelete]).
+
+    fun updateRoom(roomId: String, name: String, notes: String) { store.updateRoom(roomId, name, notes); changed() }
+    fun updatePosition(roomId: String, positionId: String, name: String, placementNotes: String, clapSpot: String) {
+        store.updatePosition(roomId, positionId, name, placementNotes, clapSpot); changed()
+    }
+    fun updateSession(sessionId: String, name: String, kind: SessionKind, intervention: String, conditions: RoomConditions) {
+        store.updateSession(sessionId, name, kind, intervention, conditions); changed()
+    }
+    fun updateAttemptNote(a: CaptureAttempt, note: String) { store.updateAttemptNote(a, note); changed() }
+
+    fun recordingsAtPosition(roomId: String, positionId: String): Int = store.attemptsAtPosition(roomId, positionId).size
+
+    fun askDelete(title: String, text: String, onConfirm: () -> Unit) {
+        if (isCapturing) return
+        confirmDelete = ConfirmDelete(title, text, onConfirm)
+    }
+
+    fun askDeleteRoom(roomId: String) {
+        val room = room(roomId) ?: return
+        val sessions = sessions(roomId)
+        val recordings = sessions.sumOf { attempts(it.id).size }
+        askDelete(
+            "Delete ${room.name}?",
+            "Removes the room, its ${plural(room.positions.size, "position")}, ${plural(sessions.size, "session")} and " +
+                "${plural(recordings, "recording")} with all their analyses. Export the room first if you want to keep a copy. This cannot be undone.",
+        ) { store.deleteRoom(roomId); afterDelete() }
+    }
+
+    fun askDeletePosition(roomId: String, positionId: String) {
+        val p = room(roomId)?.positions?.firstOrNull { it.id == positionId } ?: return
+        val n = recordingsAtPosition(roomId, positionId)
+        askDelete(
+            "Delete ${p.name}?",
+            if (n == 0) "No recordings were made at this position yet. This cannot be undone."
+            else "Also removes the ${plural(n, "recording")} made at this position, in every session of the room, with all their analyses. This cannot be undone.",
+        ) { store.deletePosition(roomId, positionId); afterDelete() }
+    }
+
+    fun askDeleteSession(sessionId: String) {
+        val s = session(sessionId) ?: return
+        val n = attempts(sessionId).size
+        askDelete(
+            "Delete ${s.name}?",
+            "Removes the session and its ${plural(n, "recording")} with all their analyses. This cannot be undone.",
+        ) { store.deleteSession(sessionId); afterDelete() }
+    }
+
+    fun askDeleteAttempt(a: CaptureAttempt) {
+        askDelete(
+            if (a.kind == AttemptKind.BACKGROUND) "Delete background recording?" else "Delete attempt?",
+            "The original recording and all analyses of it will be removed. This cannot be undone.",
+        ) { store.deleteAttempt(a); afterDelete() }
+    }
+
+    /** After a deletion: close sheets and leave any screen that showed something now gone. */
+    private fun afterDelete() {
+        sheet = null
+        changed()
+        val gone = backStack.indexOfFirst { !exists(it) }
+        if (gone > 0) {
+            while (backStack.size > gone) backStack.removeAt(backStack.lastIndex)
+            capture = CaptureUi.Idle
+        }
+    }
+
+    private fun exists(s: Screen): Boolean = when (s) {
+        Screen.Home, Screen.Capability -> true
+        is Screen.RoomDetail -> room(s.roomId) != null
+        is Screen.Compare -> room(s.roomId) != null
+        is Screen.SessionDetail -> session(s.sessionId) != null
+        is Screen.AttemptDetail -> attempts(s.sessionId).any { it.id == s.attemptId }
+    }
+
+    private fun plural(n: Int, word: String) = "$n $word${if (n == 1) "" else "s"}"
 
     fun refreshCapabilities() { capabilities = AudioCapabilities.probe(getApplication()) }
 

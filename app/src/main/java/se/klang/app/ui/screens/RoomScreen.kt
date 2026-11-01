@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -100,7 +101,7 @@ fun RoomScreen(vm: AppViewModel, roomId: String, modifier: Modifier = Modifier) 
             Card(Modifier.fillMaxWidth()) {
                 room.positions.forEachIndexed { i, p ->
                     if (i > 0) HorizontalDivider(Modifier.padding(start = 72.dp))
-                    PositionItem(i + 1, p)
+                    PositionItem(i + 1, p) { vm.sheet = Sheet.EditPosition(roomId, p.id) }
                 }
             }
         }
@@ -156,7 +157,7 @@ private fun EmptyText(text: String) {
 }
 
 @Composable
-private fun PositionItem(number: Int, p: MeasurementPosition) {
+private fun PositionItem(number: Int, p: MeasurementPosition, onEdit: () -> Unit) {
     ListItem(
         leadingContent = { NumberBadge(number.toString()) },
         headlineContent = { Text(p.name) },
@@ -164,7 +165,9 @@ private fun PositionItem(number: Int, p: MeasurementPosition) {
             val detail = listOfNotNull(p.placementNotes.takeIf { it.isNotBlank() }, p.clapSpot.takeIf { it.isNotBlank() }?.let { "Clap: $it" })
             Text(detail.joinToString(" · ").ifEmpty { "No placement notes" })
         },
+        trailingContent = { Icon(Icons.Outlined.Edit, contentDescription = "Edit position") },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onEdit),
     )
 }
 

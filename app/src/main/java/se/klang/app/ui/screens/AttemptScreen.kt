@@ -7,9 +7,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import se.klang.app.ui.SectionCard
 import se.klang.app.ui.StateChip
 import se.klang.app.ui.advice
 import se.klang.app.ui.fmt
+import se.klang.sessions.AttemptKind
 import java.text.DateFormat
 import java.util.Date
 
@@ -34,7 +36,7 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
     @Suppress("UNUSED_VARIABLE") val rev = vm.revision
     val a = vm.attempts(sessionId).firstOrNull { it.id == attemptId } ?: return
     val an = a.latestAnalysis()
-    var confirmDelete by remember { mutableStateOf(false) }
+    var note by remember(attemptId) { mutableStateOf(a.note) }
 
     LazyColumn(
         modifier.fillMaxSize(),
@@ -42,7 +44,7 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            SectionCard("Recording #${a.sequence}") {
+            SectionCard(if (a.kind == AttemptKind.BACKGROUND) "Background recording #${a.sequence}" else "Recording #${a.sequence}") {
                 Text(DateFormat.getDateTimeInstance().format(Date(a.createdAtEpochMs)))
                 a.audioConfiguration?.let { c ->
                     Text("${c.audioSource}${if (c.sourceFallback) " (fallback, device processing may be active)" else ""} · ${c.actualSampleRate} Hz ${c.encoding}")
@@ -78,16 +80,22 @@ fun AttemptScreen(vm: AppViewModel, sessionId: String, attemptId: String, modifi
             }
         }
         item {
-            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete this attempt and its recording") }
+            SectionCard("Note") {
+                OutlinedTextField(
+                    note, { note = it },
+                    placeholder = { Text("e.g. door slammed during the decay") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(enabled = note.trim() != a.note, onClick = { vm.updateAttemptNote(a, note.trim()) }) { Text("Save note") }
+                }
+            }
         }
-    }
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete attempt?") },
-            text = { Text("The original recording and all analyses of it will be removed. This cannot be undone.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; vm.deleteAttempt(a); vm.back() }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Keep") } },
-        )
+        item {
+            OutlinedButton(
+                onClick = { vm.askDeleteAttempt(a) },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text(if (a.kind == AttemptKind.BACKGROUND) "Delete this background recording" else "Delete this attempt and its recording") }
+        }
     }
 }
