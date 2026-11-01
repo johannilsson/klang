@@ -142,6 +142,25 @@ class Importer(private val store: SessionStore) {
             if (!v.matches(SAFE_ID)) throw ImportException("Invalid $kind id “$v” in results.json.")
         }
         id("room", doc.room.id)
+        for (p in listOfNotNull(doc.room.target?.profile, doc.room.userProfile)) {
+            val problems = ProfileValidation.problems(p)
+            if (problems.isNotEmpty()) throw ImportException("The room's reference profile “${p.name}” is not valid: ${problems.joinToString("; ")}.")
+        }
+        doc.room.target?.let { t ->
+            val copy = t.profile
+            if (copy != null && (copy.id != t.profileId || copy.version != t.profileVersion)) {
+                throw ImportException("The room's target does not match its profile copy.")
+            }
+            if (copy != null && copy.source is ProfileSource.BuiltIn) throw ImportException("The room's target claims to be built in but carries its own values.")
+            if (copy == null && !BuiltInProfiles.isBuiltInId(t.profileId)) {
+                throw ImportException("The room's target “${t.profileId}” is neither built in nor included in the export.")
+            }
+        }
+        doc.room.volumeCubicMetres?.let { v ->
+            if (!v.isFinite() || v < ProfileLimits.MIN_VOLUME_CUBIC_METRES || v > ProfileLimits.MAX_VOLUME_CUBIC_METRES) {
+                throw ImportException("The room volume $v m³ is out of range.")
+            }
+        }
         val sessionIds = HashSet<String>()
         val attemptIds = HashSet<String>()
         for (es in doc.sessions) {

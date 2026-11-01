@@ -43,10 +43,11 @@ class CaptureLoopTest {
         reader: ScriptedReader, frames: Int, bufferFrames: Long = 100,
         cancel: () -> String? = { null },
         progress: MutableList<Pair<Double, Double>> = mutableListOf(),
+        maxZeroReads: Int = CaptureLoop.DEFAULT_MAX_CONSECUTIVE_ZERO_READS,
     ): Triple<CaptureLoop.End, List<CaptureEvent>, FloatArray> {
         val events = mutableListOf<CaptureEvent>()
         val out = FloatArray(frames)
-        val end = CaptureLoop(rate, bufferFrames, events, AtomicLong()).run(reader, out, cancel) { t, p -> progress += t to p }
+        val end = CaptureLoop(rate, bufferFrames, events, AtomicLong(), maxZeroReads).run(reader, out, cancel) { t, p -> progress += t to p }
         return Triple(end, events, out)
     }
 
@@ -74,6 +75,48 @@ class CaptureLoopTest {
         assertEquals(listOf(CaptureEvent("SHORT_READ", 2L * chunk, "7 of $chunk frames")), events)
         assertTrue("the remaining frames are still read", out.all { it == 0.5f })
         assertEquals(CaptureDiagnostics.discontinuityFrames(events), listOf(2 * chunk))
+    }
+
+    @Test
+    fun aRunOfZeroReadsIsReportedOnceAndTheLoopContinues() {
+        val zero: (Int) -> Int = { 0 }
+        val reader = ScriptedReader(listOf<(Int) -> Int>({ n -> n }) + List(10) { zero })
+        val (end, events, out) = run(reader, rate, maxZeroReads = 50)
+        assertEquals(CaptureLoop.End.Completed, end)
+        assertEquals(listOf(CaptureEvent("SHORT_READ", chunk.toLong(), "0 of $chunk frames")), events)
+        assertTrue("the recording is still filled once reads resume", out.all { it == 0.5f })
+        assertEquals(rate / chunk + 10, reader.reads)
+    }
+
+    @Test
+    fun separateRunsOfZeroReadsAreEachReportedOnce() {
+        val zero: (Int) -> Int = { 0 }
+        val full: (Int) -> Int = { n -> n }
+        val reader = ScriptedReader(listOf(zero, zero, full, full, zero, zero, zero))
+        val (end, events, _) = run(reader, rate, maxZeroReads = 3)
+        assertEquals("two zeros, then three zeros with a limit of 3: the second run ends the attempt", true, end is CaptureLoop.End.Failed)
+        assertEquals(listOf(CaptureEvent("SHORT_READ", 0, "0 of $chunk frames"), CaptureEvent("SHORT_READ", 2L * chunk, "0 of $chunk frames")), events)
+    }
+
+    @Test
+    fun zeroReadsBelowTheLimitDoNotEndTheAttempt() {
+        val zero: (Int) -> Int = { 0 }
+        val full: (Int) -> Int = { n -> n }
+        // Runs of 4 zero reads, each followed by a full read: never 5 in a row.
+        val reader = ScriptedReader(List(rate / chunk) { List(4) { zero } + full }.flatten())
+        val (end, events, _) = run(reader, rate, maxZeroReads = 5)
+        assertEquals(CaptureLoop.End.Completed, end)
+        assertEquals(rate / chunk, events.size)
+        assertTrue(events.all { it.type == "SHORT_READ" })
+    }
+
+    @Test
+    fun zeroReadsThatNeverStopEndTheAttemptAfterTheLimit() {
+        val reader = ScriptedReader(listOf<(Int) -> Int>({ n -> n }) + List(1000) { { 0 } })
+        val (end, events, _) = run(reader, rate, maxZeroReads = 50)
+        assertEquals(CaptureLoop.End.Failed("The microphone delivered no audio (50 reads in a row returned 0 frames)"), end)
+        assertEquals("bounded: one full read and 50 zero reads, then the loop stops", 51, reader.reads)
+        assertEquals(listOf(CaptureEvent("SHORT_READ", chunk.toLong(), "0 of $chunk frames")), events)
     }
 
     @Test

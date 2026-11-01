@@ -28,4 +28,8 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    // ReferenceProfilesTest checks the shipped built-in profiles against docs/reference-profiles.md.
+    val docs = rootProject.projectDir.resolve("../docs")
+    systemProperty("klang.docsDir", docs.absolutePath)
+    inputs.dir(docs).withPropertyName("docs").withPathSensitivity(PathSensitivity.RELATIVE)
 }

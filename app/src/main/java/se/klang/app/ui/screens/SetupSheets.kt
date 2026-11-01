@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +25,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,7 +55,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import java.util.Locale
 import kotlinx.coroutines.launch
 import se.klang.app.AppViewModel
 import se.klang.app.Screen
@@ -57,7 +65,15 @@ import se.klang.app.Sheet
 import se.klang.app.ui.ConfirmPermanentDelete
 import se.klang.app.ui.plural
 import se.klang.app.ui.rememberWithMicPermission
+import se.klang.sessions.BuiltInProfiles
+import se.klang.sessions.ProfileLimits
+import se.klang.sessions.ProfileSource
+import se.klang.sessions.ProfileWording
+import se.klang.sessions.ReferenceProfile
+import se.klang.sessions.ReverbTarget
 import se.klang.sessions.Room
+import se.klang.sessions.RoomUse
+import se.klang.sessions.TargetSuggestions
 import se.klang.sessions.RoomConditions
 import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
@@ -89,7 +105,11 @@ fun SheetHost(vm: AppViewModel) {
         is Sheet.EditRoom -> vm.room(s.roomId)?.let { EditRoomSheet(vm, it, close) } ?: close()
         is Sheet.EditPosition -> EditPositionSheet(vm, s.roomId, s.positionId, close)
         is Sheet.EditSession -> vm.session(s.sessionId)?.let { EditSessionSheet(vm, it, close) } ?: close()
+        is Sheet.Target -> vm.room(s.roomId)?.let { TargetSheet(vm, it, close) } ?: close()
+        Sheet.About -> AboutSheet(close)
     }
+    // Last, so a running capture is always on top of anything else that was open.
+    CaptureSheet(vm)
 }
 
 /** The ⋮ menu in the top bar: secondary actions per screen, so the screens themselves stay short. */
@@ -115,6 +135,7 @@ fun TopBarMenu(vm: AppViewModel, screen: Screen) {
             val archived = vm.rooms().count { it.archived }
             listOfNotNull(
                 "Microphone check" to { vm.navigate(Screen.Capability) },
+                "About and licences" to { vm.sheet = Sheet.About },
                 if (vm.importing) null else "Import export…" to {
                     pickExport.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
                 },
@@ -129,6 +150,7 @@ fun TopBarMenu(vm: AppViewModel, screen: Screen) {
             val archivedSessions = vm.sessions(screen.roomId).count { it.archived }
             listOfNotNull(
                 room?.takeIf { canEdit }?.let { "Edit room…" to { vm.sheet = Sheet.EditRoom(it.id) } },
+                room?.takeIf { canEdit }?.let { "Target…" to { vm.sheet = Sheet.Target(it.id) } },
                 "Measurement protocol" to { vm.sheet = Sheet.Protocol },
                 "Compare sessions" to { vm.navigate(Screen.Compare(screen.roomId)) },
                 "Export all" to { export(screen.roomId) },
@@ -535,4 +557,219 @@ private fun ConditionsSheet(vm: AppViewModel, session: Session, onDismiss: () ->
             if (edited == c || vm.updateSession(session.id, session.name, session.kind, session.intervention, edited)) onDismiss()
         }
     }
+}
+
+
+/** Parses a decimal typed with a point or a comma; null when it is not a number. */
+internal fun parseDecimal(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
+
+private fun useLabel(u: RoomUse) = when (u) {
+    RoomUse.DINING_LIVING -> "Dining / living"
+    RoomUse.HOME_OFFICE -> "Home office"
+    RoomUse.KITCHEN -> "Kitchen"
+    RoomUse.OTHER -> "Other"
+}
+
+private fun s2(v: Double) = String.format(Locale.ROOT, "%.2f", v).trimEnd('0').trimEnd('.').let { if ('.' !in it) "$it.0" else it }
+
+/** One line on what an imported profile's target says (no editor for these types, #27). */
+private fun targetSummary(p: ReferenceProfile): String = when (val t = p.target) {
+    is ReverbTarget.UpperLimit -> "at most ${s2(t.seconds)} s"
+    is ReverbTarget.TargetWithTolerance -> "${s2(t.seconds)} s (${s2(t.seconds * t.lowerFactor)}–${s2(t.seconds * t.upperFactor)} s)"
+    is ReverbTarget.VolumeFunction -> "depends on the room volume (${t.minVolumeCubicMetres.toInt()}–${t.maxVolumeCubicMetres.toInt()} m³)"
+}
+
+private fun key(p: ReferenceProfile) = "${p.id}#${p.version}"
+
+/**
+ * The room's target (#26, #27): what the room is used for, a suggested built-in value (BB93), an
+ * imported profile, or the user's own upper limit on the speech-range average, plus an optional
+ * volume for the absorption estimate. A target only describes results; it never changes them.
+ */
+@Composable
+private fun TargetSheet(vm: AppViewModel, room: Room, onDismiss: () -> Unit) {
+    val current = room.target?.resolve()
+    var use by remember(room.id) { mutableStateOf(room.use) }
+    var choice by remember(room.id) {
+        mutableStateOf(
+            when {
+                current == null -> "none"
+                current.source is ProfileSource.User -> "own"
+                else -> key(current)
+            },
+        )
+    }
+    // The saved "your target": an upper limit, or a range stored as a middle value with factors.
+    val ownBounds: Pair<Double?, Double?> = when (val t = room.userProfile?.target) {
+        is ReverbTarget.UpperLimit -> null to t.seconds
+        is ReverbTarget.TargetWithTolerance -> (t.seconds * t.lowerFactor).takeIf { t.lowerFactor > 0 } to t.seconds * t.upperFactor
+        else -> null to null
+    }
+    var own by remember(room.id) { mutableStateOf(ownBounds.second?.let { s2(it) } ?: "") }
+    var ownLower by remember(room.id) { mutableStateOf(ownBounds.first?.let { s2(it) } ?: "") }
+    var volume by remember(room.id) { mutableStateOf(room.volumeCubicMetres?.let { s2(it) } ?: "") }
+    var dims by remember { mutableStateOf(false) }
+    var length by remember { mutableStateOf("") }
+    var width by remember { mutableStateOf("") }
+    var height by remember { mutableStateOf("") }
+    @Suppress("UNUSED_VARIABLE") val rev = vm.revision
+    val imported = vm.importedProfiles()
+    val pickProfile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) vm.importProfile(uri) }
+
+    val suggestions = TargetSuggestions.forUse(use)
+    // A built-in profile selected earlier stays listed even if it is not suggested for the current use.
+    val extraBuiltIn = current?.takeIf { it.source is ProfileSource.BuiltIn && suggestions.none { s -> key(s.profile) == key(it) } }
+    val ownSeconds = parseDecimal(own)
+    val ownLowerSeconds = parseDecimal(ownLower)
+    val lowerValid = ownLower.isBlank() ||
+        (ownLowerSeconds != null && ownLowerSeconds >= ProfileLimits.MIN_SECONDS && (ownSeconds == null || ownLowerSeconds < ownSeconds))
+    val ownValid = ownSeconds != null && ownSeconds in ProfileLimits.MIN_SECONDS..ProfileLimits.MAX_SECONDS && lowerValid
+    val volumeValue = parseDecimal(volume)
+    val volumeValid = volume.isBlank() || (volumeValue != null && volumeValue in ProfileLimits.MIN_VOLUME_CUBIC_METRES..ProfileLimits.MAX_VOLUME_CUBIC_METRES)
+    val canSave = !vm.editingBlocked && volumeValid && (choice != "own" || ownValid)
+
+    KlangSheet({ vm.profileImportMessage = null; onDismiss() }) {
+        SheetTitle(
+            "Target",
+            "What you would like the speech-range reverberation (average of 500, 1000 and 2000 Hz) to be, as an upper limit or a range. " +
+                "It only describes your results; it never changes them.",
+        )
+        Text("What is the room used for?", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RoomUse.entries.forEach { u -> FilterChip(selected = use == u, onClick = { use = u }, label = { Text(useLabel(u)) }) }
+        }
+
+        Text(use?.let { "Suggested for ${useLabel(it).lowercase(Locale.ROOT)}" } ?: "Choose a use to see suggestions", style = MaterialTheme.typography.titleSmall)
+        @Composable
+        fun Option(k: String, title: String, subtitle: String?) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = choice == k, onClick = { choice = k }, role = Role.RadioButton),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = choice == k, onClick = null)
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text(title, style = MaterialTheme.typography.bodyLarge)
+                    subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+        }
+        suggestions.forEach { sug ->
+            Option(key(sug.profile), "${s2((sug.profile.target as ReverbTarget.UpperLimit).seconds)} s · ${sug.label}", ProfileWording.label(sug.profile))
+        }
+        extraBuiltIn?.let { Option(key(it), "${targetSummary(it)} · current", ProfileWording.label(it)) }
+        imported.forEach { p -> Option(key(p), "${p.name} · ${targetSummary(p)}", ProfileWording.label(p) + " · version ${p.version}") }
+        Option("own", "My own value or range", "Your target for the speech-range average")
+        if (choice == "own") {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    ownLower, { ownLower = it },
+                    label = { Text("At least (s)") },
+                    placeholder = { Text("optional") },
+                    singleLine = true,
+                    isError = !lowerValid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    own, { own = it },
+                    label = { Text("At most (s)") },
+                    placeholder = { Text("0.6") },
+                    singleLine = true,
+                    isError = own.isNotBlank() && !ownValid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                "A single upper limit, or a range such as 0.4–0.6 s. ${ProfileLimits.MIN_SECONDS}–${ProfileLimits.MAX_SECONDS} s.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Option("none", "No target", "The summary skips the comparison with a target")
+        if (suggestions.isNotEmpty() || extraBuiltIn != null) {
+            Text(
+                "BB93 sets limits for school rooms; here they are a guide for a home. " +
+                    "Contains public sector information licensed under the Open Government Licence v3.0 (© Crown copyright 2015).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = { pickProfile.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }) {
+            Text("Import a reference profile file…")
+        }
+        vm.profileImportMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+
+        HorizontalDivider()
+        Text("Room volume (optional)", style = MaterialTheme.typography.titleSmall)
+        OutlinedTextField(
+            volume, { volume = it },
+            label = { Text("Volume (m³)") },
+            singleLine = true,
+            isError = !volumeValid,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TextButton(onClick = { dims = !dims }) { Text(if (dims) "Hide length × width × ceiling" else "Work it out from length × width × ceiling") }
+        if (dims) {
+            fun fromDimensions() {
+                val v = listOf(length, width, height).map(::parseDecimal)
+                if (v.all { it != null && it > 0 }) volume = s2(v.filterNotNull().reduce(Double::times))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DimensionField("Length (m)", length, Modifier.weight(1f)) { length = it; fromDimensions() }
+                DimensionField("Width (m)", width, Modifier.weight(1f)) { width = it; fromDimensions() }
+                DimensionField("Ceiling (m)", height, Modifier.weight(1f)) { height = it; fromDimensions() }
+            }
+        }
+        Text(
+            "With a volume and a target, the summary estimates how much absorbing surface would reach the target (Sabine's formula).",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        EditingBlockedNote(vm)
+        SheetActions("Save", canSave, { vm.profileImportMessage = null; onDismiss() }) {
+            val all = (suggestions.map { it.profile } + listOfNotNull(extraBuiltIn) + imported)
+            val selected = all.firstOrNull { key(it) == choice }
+            val ok = vm.saveRoomTarget(
+                room.id, use, volume.takeIf { it.isNotBlank() }?.let(::parseDecimal),
+                selected = if (choice == "own" || choice == "none") null else selected,
+                ownSeconds = if (choice == "own") ownSeconds else null,
+                ownLowerSeconds = if (choice == "own") ownLowerSeconds else null,
+            )
+            if (ok) { vm.profileImportMessage = null; onDismiss() }
+        }
+    }
+}
+
+/** Licences and attributions the app's data requires. */
+@Composable
+private fun AboutSheet(onDismiss: () -> Unit) {
+    KlangSheet(onDismiss) {
+        SheetTitle("About and licences")
+        Text(
+            "Klang compares reverberation before and after a change to a room, from handclaps on the phone microphone. " +
+                "It is a comparative tool, not a calibrated sound level meter: levels are relative to digital full scale (dBFS).",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text("Built-in targets", style = MaterialTheme.typography.titleSmall)
+        Text(BuiltInProfiles.BB93_ATTRIBUTION, style = MaterialTheme.typography.bodyMedium)
+        Text("Licence: ${BuiltInProfiles.OGL_URL}", style = MaterialTheme.typography.bodySmall)
+        Text("Source: ${BuiltInProfiles.BB93_URL}", style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Absorption estimates use Sabine's reverberation formula (W. C. Sabine, Collected Papers on Acoustics, 1922).",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Close") }
+    }
+}
+
+@Composable
+private fun DimensionField(label: String, value: String, modifier: Modifier, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value, onChange,
+        label = { Text(label) }, singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = modifier,
+    )
 }

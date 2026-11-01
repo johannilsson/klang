@@ -6,6 +6,7 @@ import se.klang.dsp.ReasonCode
 import se.klang.dsp.Wav
 import se.klang.dsp.WavEncoding
 import se.klang.sessions.AnalysisRecord
+import se.klang.sessions.AudioConfiguration
 import se.klang.sessions.BandRecord
 import se.klang.sessions.Fit
 import se.klang.sessions.Reason
@@ -61,6 +62,47 @@ internal object TestFixtures {
             ),
         )
     }
+
+    private fun record(bands: List<BandRecord>, peak: Double, bg: Double): AnalysisRecord {
+        val c = AnalysisConfiguration()
+        return AnalysisRecord(
+            c.algorithmId, c.version, Records.configuration(c), 0, QualityState.VALID, emptyList(), RATE, 5.0, 1.5, peak, bg, bands,
+        )
+    }
+
+    private fun band(hz: Int, t20: Double?, margin: Double, reasons: List<Reason> = emptyList()) = BandRecord(
+        hz, hz == 250 || hz == 4000, if (t20 == null) QualityState.INVALID else QualityState.VALID, reasons,
+        t20 = t20?.let(::fit), marginDb = margin,
+    )
+
+    /** A clean clap: 250 Hz too weak, the other four bands measured. Example values, not a measurement. */
+    fun goodRecord(): AnalysisRecord = record(
+        listOf(
+            band(250, null, 28.0, listOf(Reason(ReasonCode.INSUFFICIENT_SNR_MARGIN, QualityState.INVALID, "weak", null, 35.0))),
+            band(500, 0.78, 43.0), band(1000, 0.74, 47.0), band(2000, 0.66, 50.0), band(4000, 0.59, 52.0),
+        ),
+        peak = -6.0, bg = -66.0,
+    )
+
+    /** A noisy room: every band fails the margin, each with two reasons (what the analyser really reports). */
+    fun noisyRecord(): AnalysisRecord = record(
+        listOf(250, 500, 1000, 2000, 4000).zip(listOf(23.0, 23.0, 24.0, 23.0, 24.0)).map { (hz, m) ->
+            band(
+                hz, null, m,
+                listOf(
+                    Reason(ReasonCode.INSUFFICIENT_SNR_MARGIN, QualityState.INVALID, "Only $m dB between clap and background in this band", m, 35.0),
+                    Reason(ReasonCode.INSUFFICIENT_DECAY_RANGE, QualityState.INVALID, "Energy decay does not reach -25 dB before the background"),
+                ),
+            )
+        },
+        peak = -4.9, bg = -38.7,
+    )
+
+    fun audioConfiguration() = AudioConfiguration(
+        requestedSampleRate = RATE, actualSampleRate = RATE, encoding = "PCM_FLOAT", channelCount = 1,
+        audioSource = "UNPROCESSED", unprocessedSupported = true, sourceFallback = false, inputDevice = null,
+        deviceManufacturer = "test", deviceModel = "test", androidRelease = "16", androidSdkInt = 36,
+    )
 
     const val INVALID_REASON = "Decay is only 20 dB above the background in this band (needs 35)"
 }

@@ -16,7 +16,7 @@ androidxTestCore = "1.7.0"
 
 # Pure JVM core (DSP, sessions, export, CLI)
 kotlinxSerialization = "1.12.0"
-junitJupiter = "5.13.4"
+junitJupiter = "6.1.3"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

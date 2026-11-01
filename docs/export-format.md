@@ -71,6 +71,26 @@ position); position name, `placementNotes` or `clapSpot`; session name, `kind`, 
 current description; this field says when it last changed. Recordings and analyses are never edited.
 A deleted position is simply absent, together with its attempts in every session.
 
+`use`, `volumeCubicMetres`, `target`, `userProfile`, `targetUpdatedAtEpochMs` (room; optional, #26/#27): what
+the room is used for (`DINING_LIVING`, `HOME_OFFICE`, `KITCHEN`, `OTHER`), its optional volume (m³), the
+selected reference profile (`{profileId, profileVersion, profile}`, where `profile` is a copy for user and
+imported profiles and `null` for built-in ones) and the room's latest "your target" profile. Model and
+validation in [reference-profiles.md](reference-profiles.md). Import validates them and rejects an archive
+whose profile copy is out of range or claims to be built in.
+
+Top-level, optional, additive within schema version 1 (never read back by import):
+
+* `referenceProfiles[]`: the room's selected profile and its "your target", in full, with their source
+  (`BUILT_IN` with citation, `USER`, or `IMPORTED` with file name and the citation the file declares).
+* `summaries`: `{policyVersion, sessions[], comparisons[]}`, the plain-language texts as the app showed
+  them ([summaries.md](summaries.md)). Each records its summary policy version, algorithm version and the
+  reference profile id and version it used, so a later profile change never rewrites what an export said.
+  Per position, `brief` is the one-sentence card text and `bands[]` holds the median per band behind the band
+  diagram; per compared position, `bands[]` holds the before and after medians behind the before/after
+  diagram (a band without enough usable, non-invalid claps has no value).
+* `attributions[]`: licence statements the exported data requires; the Open Government Licence v3.0
+  attribution when a built-in (BB93) profile is included.
+
 ### `CaptureAttempt`
 
 | Field | Meaning |

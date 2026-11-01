@@ -36,6 +36,11 @@ internal interface PcmReader {
  * Events: READ_ERROR (negative read result; the attempt fails), SHORT_READ (fewer frames than
  * requested), OVERRUN (the HAL frame position ran ahead of what was read by more than the whole
  * buffer, so frames were dropped; reported once).
+ *
+ * Reads that return 0 frames: a run of consecutive zero reads is one gap in the timeline, so it
+ * is reported as a single SHORT_READ at the frame where it started. After [maxConsecutiveZeroReads]
+ * zero reads in a row the microphone is treated as not delivering audio and the attempt fails,
+ * instead of spinning until the user cancels.
  */
 internal class CaptureLoop(
     private val sampleRate: Int,
@@ -43,7 +48,13 @@ internal class CaptureLoop(
     private val events: MutableList<CaptureEvent>,
     /** Frames read so far; read by the routing and silencing callbacks on another thread. */
     private val framesRead: AtomicLong = AtomicLong(0),
+    /** Consecutive reads returning 0 frames after which the attempt fails (50 ≈ one second of 20 ms reads). */
+    private val maxConsecutiveZeroReads: Int = DEFAULT_MAX_CONSECUTIVE_ZERO_READS,
 ) {
+    init {
+        require(maxConsecutiveZeroReads >= 1) { "maxConsecutiveZeroReads must be at least 1" }
+    }
+
     sealed interface End {
         data object Completed : End
         data class Cancelled(val reason: String) : End
@@ -68,6 +79,7 @@ internal class CaptureLoop(
         var overrunReported = false
         var lastProgress = 0L
         var peakSince = 0f
+        var zeroReads = 0
         var pos = 0
         while (pos < total) {
             cancelReason()?.let { return End.Cancelled(it) }
@@ -77,6 +89,15 @@ internal class CaptureLoop(
                 events += CaptureEvent("READ_ERROR", pos.toLong(), "AudioRecord.read returned $got")
                 return End.Failed("Capture failed (error $got)")
             }
+            if (got == 0) {
+                zeroReads++
+                if (zeroReads == 1) events += CaptureEvent("SHORT_READ", pos.toLong(), "0 of $n frames")
+                if (zeroReads >= maxConsecutiveZeroReads) {
+                    return End.Failed("The microphone delivered no audio ($zeroReads reads in a row returned 0 frames)")
+                }
+                continue
+            }
+            zeroReads = 0
             if (got < n) events += CaptureEvent("SHORT_READ", pos.toLong(), "$got of $n frames")
             for (i in pos until pos + max(0, got)) { val a = abs(out[i]); if (a > peakSince) peakSince = a }
             pos += got
@@ -102,6 +123,10 @@ internal class CaptureLoop(
             }
         }
         return End.Completed
+    }
+
+    companion object {
+        const val DEFAULT_MAX_CONSECUTIVE_ZERO_READS = 50
     }
 }
 

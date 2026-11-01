@@ -2,6 +2,7 @@ package se.klang.app.ui.screens
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,11 +14,14 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import se.klang.sessions.AttemptReporter
+import se.klang.sessions.RecordingTimeline
 import se.klang.app.AppViewModel
 import se.klang.app.CaptureUi
 import se.klang.app.ui.ScreenPadding
@@ -88,21 +92,26 @@ fun CapabilityScreen(vm: AppViewModel, modifier: Modifier = Modifier) {
                 }
             }
             item {
-                SectionCard("Analysis") {
-                    val a = t.analysis
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Text("Attempt"); StateChip(a.state) }
-                    Text("Peak ${fmt(a.peakDbfs, 1)} dBFS · background ${fmt(a.backgroundRmsDbfs, 1)} dBFS RMS (relative levels, not SPL)")
-                    a.reasons.forEach { Text("• ${it.message}", style = MaterialTheme.typography.bodySmall) }
-                    a.bands.forEach { b ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${b.centerHz} Hz${if (b.extended) " (ext.)" else ""}")
-                            StateChip(b.state)
-                            Text("T20 ${fmt(displayedT20(b)?.seconds)} s · margin ${fmt(b.marginDb, 0)} dB")
+                // The same result, graph and grouped findings as an attempt in a session.
+                val timeline = remember(t) { RecordingTimeline.of(t.samples, t.sampleRate, t.analysis) }
+                val report = remember(t, timeline) { AttemptReporter.report(t.analysis, t.events, timeline) }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    VerdictCard(report)
+                    RecordingCard(timeline, report)
+                    FindingsCard(report)
+                    SectionCard("Bands") {
+                        t.analysis.bands.forEach { b ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("${b.centerHz} Hz${if (b.extended) " (ext.)" else ""}")
+                                StateChip(b.state)
+                                Text("T20 ${fmt(displayedT20(b)?.seconds)} s · margin ${fmt(b.marginDb, 0)} dB")
+                            }
                         }
+                        Text("Peak ${fmt(t.analysis.peakDbfs, 1)} dBFS · background ${fmt(t.analysis.backgroundRmsDbfs, 1)} dBFS RMS (relative levels, not SPL)", style = MaterialTheme.typography.bodySmall)
+                        OutlinedButton(onClick = {
+                            scope.launch { vm.shareTestWav()?.let { context.startActivity(Intent.createChooser(it, "Share test WAV")) } }
+                        }) { Text("Share WAV") }
                     }
-                    OutlinedButton(onClick = {
-                        scope.launch { vm.shareTestWav()?.let { context.startActivity(Intent.createChooser(it, "Share test WAV")) } }
-                    }) { Text("Share WAV") }
                 }
             }
         }
