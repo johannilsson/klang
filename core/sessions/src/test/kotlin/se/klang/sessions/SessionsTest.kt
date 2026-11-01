@@ -33,7 +33,9 @@ class SessionsTest {
         return Fixture(store, store.room(room.id)!!)
     }
 
-    private fun record(f: Fixture, kind: SessionKind, t60: Double, seedBase: Long, audio: AudioConfiguration = config(), attempts: Int = 5): Pair<Session, List<CaptureAttempt>> {
+    private fun record(f: Fixture, kind: SessionKind, t60: Double, seedBase: Long, audio: AudioConfiguration = config(), attempts: Int = 5,
+        analysis: AnalysisConfiguration? = AnalysisConfiguration(),
+    ): Pair<Session, List<CaptureAttempt>> {
         val s = f.store.createSession(f.room.id, kind.name.lowercase(), kind, if (kind == SessionKind.TREATMENT) "Rug and curtains" else "")
         val service = AnalysisService(f.store)
         for (p in f.room.positions) for (i in 0 until attempts) {
@@ -43,7 +45,7 @@ class SessionsTest {
                 SyntheticImpulse.Spec(decaySeconds = bands.associateWith { t60 * jitter }, durationSeconds = 3.0, seed = seedBase + i + p.name.hashCode()),
             )
             val a = f.store.addAttempt(s.id, p.id, Wav.toBytes(sig.samples, sig.sampleRate, WavEncoding.FLOAT_32).inputStream(), audioConfiguration = audio)
-            service.analyze(a)
+            if (analysis != null) service.analyze(a, analysis)
         }
         return s to f.store.attempts(s.id)
     }
@@ -132,6 +134,60 @@ class SessionsTest {
         assertTrue(c.configurationsIncompatible)
         assertTrue(c.configurationWarnings.any { "different configurations" in it }, c.configurationWarnings.toString())
         c.cells.forEach { assertTrue(it.verdict != Verdict.DECREASE_EXCEEDS_VARIABILITY) }
+    }
+
+    @Test
+    fun `attempts analysed only with an older version are reported as stale and re-analysis clears it`() {
+        val f = fixture()
+        val old = AnalysisConfiguration(version = "0.1.0-old")
+        val (b, ba) = record(f, SessionKind.BASELINE, 0.6, 1000, analysis = old)
+        val (t, ta) = record(f, SessionKind.TREATMENT, 0.35, 3000)
+        val c = Comparator().compare(f.room, b, ba, t, ta, algorithmVersion = AnalysisConfiguration.VERSION)
+        val stale = c.staleAnalyses.single()
+        assertEquals(b.id, stale.sessionId)
+        assertEquals(15, stale.impulseAttempts)
+        assertEquals(15, stale.missing)
+        assertEquals(mapOf("0.1.0-old" to 15), stale.otherVersions)
+        assertEquals(0, stale.neverAnalysed)
+        // Versions are not mixed: the old results are not used for the current-version comparison.
+        c.cells.forEach { assertEquals(Verdict.INSUFFICIENT_DATA, it.verdict) }
+
+        AnalysisService(f.store).reanalyzeSession(b.id)
+        val reanalysed = f.store.attempts(b.id)
+        reanalysed.forEach { assertEquals(listOf("0.1.0-old", AnalysisConfiguration.VERSION), it.analyses.map { r -> r.algorithmVersion }) }
+        val c2 = Comparator().compare(f.room, b, reanalysed, t, ta, algorithmVersion = AnalysisConfiguration.VERSION)
+        assertTrue(c2.staleAnalyses.isEmpty(), c2.staleAnalyses.toString())
+        assertTrue(c2.cells.any { it.verdict != Verdict.INSUFFICIENT_DATA })
+    }
+
+    @Test
+    fun `fully analysed sessions report no stale attempts`() {
+        val f = fixture()
+        val (b, ba) = record(f, SessionKind.BASELINE, 0.6, 1000)
+        val (t, ta) = record(f, SessionKind.TREATMENT, 0.35, 3000)
+        val c = Comparator().compare(f.room, b, ba, t, ta, algorithmVersion = AnalysisConfiguration.VERSION)
+        assertTrue(c.staleAnalyses.isEmpty(), c.staleAnalyses.toString())
+        val coverage = AnalysisCoverage.of(b, ba, AnalysisConfiguration.VERSION)
+        assertEquals(15, coverage.impulseAttempts)
+        assertEquals(0, coverage.missing)
+        assertTrue(coverage.otherVersions.isEmpty())
+    }
+
+    @Test
+    fun `coverage separates never-analysed attempts from older versions and ignores background recordings`() {
+        val f = fixture()
+        val (s, _) = record(f, SessionKind.BASELINE, 0.5, 400, attempts = 1, analysis = null)
+        val p = f.room.positions.first()
+        val sig = SyntheticImpulse.generate(SyntheticImpulse.Spec(decaySeconds = mapOf(1000 to 0.5), durationSeconds = 3.0, seed = 9))
+        val bytes = Wav.toBytes(sig.samples, sig.sampleRate, WavEncoding.FLOAT_32)
+        f.store.addAttempt(s.id, p.id, bytes.inputStream(), AttemptKind.BACKGROUND)
+        val older = f.store.attempts(s.id).first { it.kind == AttemptKind.IMPULSE }
+        AnalysisService(f.store).analyze(older, AnalysisConfiguration(version = "0.1.0-old"))
+        val coverage = AnalysisCoverage.of(s, f.store.attempts(s.id), AnalysisConfiguration.VERSION)
+        assertEquals(3, coverage.impulseAttempts)
+        assertEquals(3, coverage.missing)
+        assertEquals(mapOf("0.1.0-old" to 1), coverage.otherVersions)
+        assertEquals(2, coverage.neverAnalysed)
     }
 
     @Test
