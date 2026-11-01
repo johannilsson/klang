@@ -38,7 +38,7 @@ app/                Android app (Kotlin, Jetpack Compose, minSdk 29)
   ui/screens/       Home, Microphone check, Room, Session, Attempt, Compare
 core/               Separate Gradle build, pure Kotlin/JVM — no Android SDK needed
   dsp/              Octave filters, impulse detection, Schroeder/truncation, T20/EDT fits, quality gates
-  sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export
+  sessions/         Room/Position/Session/Attempt model, JSON file store, re-analysis, comparison, export, import
   cli/              klang-analyse: analyse WAV files on a desktop
 docs/               DSP method, export schema, validation plan, generated synthetic results
 scripts/            analyse_export.py: summarise an export ZIP and re-analyse its recordings
@@ -90,9 +90,13 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
    inconclusive*.
 6. **Export**: a ZIP with `results.json`, `summary.csv`, `comparison.csv` and the original WAVs,
    shared through the system share sheet ([schema](docs/export-format.md)).
-7. **Archive or delete**: the top-bar menu on a room or session screen archives it (hidden from lists and
-   comparisons, everything kept, reversible) or deletes it permanently with its recordings, after a
-   confirmation that suggests exporting first.
+7. **Import**: *Import export…* in the Home top-bar menu reads an export ZIP back (system file picker, no
+   storage permission). Existing recordings and analyses are never overwritten; the
+   [collision policy](docs/export-format.md#import) says what is merged.
+8. **Archive or delete**: the top-bar menu on a room or session screen archives it (hidden from
+   lists and comparisons, everything kept, reversible; *Show archived* in the same menu lists them
+   again) or deletes it permanently with its recordings, after a confirmation that suggests
+   exporting first.
 
 ## Design notes
 
@@ -110,6 +114,10 @@ core/cli/build/install/klang-analyse/bin/klang-analyse --synth test.wav --t60 0.
 * **Persistence**: app-private JSON plus the original WAVs, written atomically. Every analysis is
   appended with its algorithm version and full configuration, so re-analysis never replaces a
   recording or an earlier result.
+* **Backup and moving data**: Android Auto Backup includes the store, but cloud backup has a 25 MB
+  quota per app, and above it the system does not back the app up at all. A 5 s recording is about
+  1 MB (48 kHz, 32-bit float), so a few sessions exceed it and recordings may not be backed up. Use
+  *Export* and *Import* to keep or move data: an export ZIP holds every result and the original WAVs.
 * **Comparison**: a descriptive, versioned rule, not a significance test. There are no confidence
   percentages and no combined room score.
 

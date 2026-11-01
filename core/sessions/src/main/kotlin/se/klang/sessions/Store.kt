@@ -16,6 +16,7 @@ import java.util.UUID
  * sessions/<sessionId>/attempts/<attemptId>.json
  * sessions/<sessionId>/recordings/<attemptId>.wav    (original, never overwritten)
  * trash/                                             (tombstones of deletions in progress)
+ * import-staging/                                    (WAVs unpacked by an import in progress)
  * ```
  *
  * Archiving ([setRoomArchived], [setSessionArchived]) only sets a flag: lists in the app hide
@@ -31,6 +32,7 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         root.mkdirs()
         // Finish deletions interrupted by a crash: everything in trash/ was already unlinked from the store.
         File(root, TRASH).listFiles()?.forEach { it.deleteRecursively() }
+        File(root, STAGING).listFiles()?.forEach { it.deleteRecursively() }
     }
 
     // ---- Rooms ----
@@ -123,7 +125,7 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
     ): CaptureAttempt {
         requireNotNull(session(sessionId)) { "No session $sessionId" }
         val id = newId()
-        val rel = "sessions/$sessionId/recordings/$id.wav"
+        val rel = recordingPath(sessionId, id)
         val file = File(root, rel)
         file.parentFile.mkdirs()
         val tmp = File(file.parentFile, "$id.wav.tmp")
@@ -144,6 +146,27 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
         .sortedWith(compareBy({ it.createdAtEpochMs }, { it.sequence }, { it.id }))
 
     fun recordingFile(a: CaptureAttempt): File = File(root, a.recordingPath)
+
+    /** Store-relative path where the original recording of an attempt lives. */
+    fun recordingPath(sessionId: String, attemptId: String): String =
+        "sessions/${safe(sessionId)}/recordings/${safe(attemptId)}.wav"
+
+    /**
+     * Moves [source] into the store as the recording at [relPath] (from [recordingPath]). Never
+     * replaces an existing recording.
+     */
+    internal fun placeRecording(source: File, relPath: String) {
+        val target = File(root, relPath)
+        check(!target.exists()) { "A recording already exists at $relPath" }
+        target.parentFile.mkdirs()
+        if (source.renameTo(target)) return
+        val tmp = File(target.parentFile, target.name + ".tmp")
+        source.inputStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        check(tmp.renameTo(target)) { "Could not store recording" }
+    }
+
+    /** A fresh scratch directory inside the store (same file system, so files can be renamed into place). */
+    internal fun newStagingDir(): File = File(root, "$STAGING/${newId()}").apply { mkdirs() }
 
     /** Optional deletion of an attempt (e.g. a rejected one) and its recording. Never automatic. */
     fun deleteAttempt(a: CaptureAttempt) {
@@ -177,5 +200,6 @@ class SessionStore(val root: File, private val clock: () -> Long = System::curre
 
     private companion object {
         const val TRASH = "trash"
+        const val STAGING = "import-staging"
     }
 }

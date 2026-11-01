@@ -2,6 +2,7 @@ package se.klang.app
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -35,6 +36,8 @@ import se.klang.sessions.CaptureEvent
 import se.klang.sessions.Comparator
 import se.klang.sessions.Comparison
 import se.klang.sessions.Exporter
+import se.klang.sessions.ImportException
+import se.klang.sessions.Importer
 import se.klang.sessions.Records
 import se.klang.sessions.Room
 import se.klang.sessions.RoomConditions
@@ -42,6 +45,7 @@ import se.klang.sessions.Session
 import se.klang.sessions.SessionKind
 import se.klang.sessions.SessionStore
 import java.io.File
+import java.io.IOException
 import kotlin.math.max
 
 /** Simple stack navigation without extra dependencies. */
@@ -416,11 +420,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Outcome of an import, shown until dismissed. */
+    data class ImportOutcome(val succeeded: Boolean, val message: String)
+
+    /** True while an import runs; [importOutcome] holds the result until dismissed. */
+    var importing by mutableStateOf(false)
+        private set
+    var importOutcome by mutableStateOf<ImportOutcome?>(null)
+        private set
+
+    /**
+     * Imports a `klang-export-*.zip` picked with the system file picker. Runs off the main thread;
+     * never overwrites an existing recording or analysis (see docs/export-format.md).
+     */
+    fun importExport(uri: Uri) {
+        if (importing || isCapturing) return
+        importing = true
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                try {
+                    getApplication<Application>().contentResolver.openInputStream(uri)
+                        ?.use { ImportOutcome(true, Importer(store).import(it).summary()) }
+                        ?: ImportOutcome(false, "Could not open the selected file.")
+                } catch (e: ImportException) {
+                    ImportOutcome(false, "${e.message} Nothing was imported.")
+                } catch (e: SecurityException) {
+                    ImportOutcome(false, "No permission to read the selected file. Nothing was imported.")
+                } catch (e: IOException) {
+                    ImportOutcome(false, "The import stopped: ${e.message}. $PARTIAL_IMPORT")
+                } catch (e: IllegalStateException) {
+                    ImportOutcome(false, "The import stopped: ${e.message}. $PARTIAL_IMPORT")
+                }
+            }
+            importing = false
+            importOutcome = outcome
+            changed()
+        }
+    }
+
+    fun dismissImportOutcome() { importOutcome = null }
+
     companion object {
         const val PRE_ROLL_SECONDS = 1.5
         const val COUNTDOWN_SECONDS = 3
         const val RECORD_SECONDS = 5.0
         const val PRACTICE_SECONDS = 30.0
+        private const val PARTIAL_IMPORT =
+            "Recordings imported so far are complete and nothing existing was replaced; importing the same file again finishes the rest."
         val DISCONTINUITY_TYPES: Set<String> = AnalysisService.DISCONTINUITY_EVENTS
         fun describeEvent(e: CaptureEvent) = "${e.type} at frame ${e.atFrame}${if (e.detail.isNotEmpty()) ": ${e.detail}" else ""}"
     }

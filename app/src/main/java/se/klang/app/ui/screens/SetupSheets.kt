@@ -1,6 +1,8 @@
 package se.klang.app.ui.screens
 
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -62,6 +65,14 @@ import se.klang.sessions.SessionKind
 fun SheetHost(vm: AppViewModel) {
     val close = { vm.sheet = null }
     val practice = rememberWithMicPermission(onDenied = { vm.permissionDenied() }) { vm.startPractice() }
+    vm.importOutcome?.let { outcome ->
+        AlertDialog(
+            onDismissRequest = { vm.dismissImportOutcome() },
+            title = { Text(if (outcome.succeeded) "Import finished" else "Import failed") },
+            text = { Text(outcome.message) },
+            confirmButton = { TextButton(onClick = { vm.dismissImportOutcome() }) { Text("OK") } },
+        )
+    }
     when (val s = vm.sheet) {
         null -> Unit
         Sheet.NewRoom -> NewRoomSheet(vm, close)
@@ -88,11 +99,18 @@ fun TopBarMenu(vm: AppViewModel, screen: Screen) {
     // A permanent delete waits for this confirmation; archive needs none (it is undone from the same menu).
     var confirmDelete by remember { mutableStateOf<Screen?>(null) }
     val canDelete = !vm.reanalyzing
+    // System file picker: the user grants access to one file, so no storage permission is needed.
+    val pickExport = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importExport(uri)
+    }
     val items: List<Pair<String, () -> Unit>> = when (screen) {
         Screen.Home -> {
             val archived = vm.rooms().count { it.archived }
             listOfNotNull(
                 "Microphone check" to { vm.navigate(Screen.Capability) },
+                if (vm.importing) null else "Import export…" to {
+                    pickExport.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+                },
                 if (archived > 0 || vm.showArchivedRooms) {
                     (if (vm.showArchivedRooms) "Hide archived rooms" else "Show archived rooms ($archived)") to
                         { vm.showArchivedRooms = !vm.showArchivedRooms }
