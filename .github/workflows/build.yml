@@ -27,7 +27,7 @@ jobs:
 
       - name: App test summary
         if: always()
-        run: python3 .github/scripts/junit_summary.py 'app/build/test-results/testDebugUnitTest/*.xml'
+        run: python3 .github/scripts/junit_summary.py --title='App unit tests' 'app/build/test-results/testDebugUnitTest/*.xml'
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4

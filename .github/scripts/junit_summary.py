@@ -12,7 +12,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 
-def main(patterns):
+def main(patterns, title="Core tests"):
     paths = sorted({p for pattern in patterns for p in glob.glob(pattern)})
     totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
     problems = []  # (suite, detail)
@@ -35,7 +35,7 @@ def main(patterns):
                         first = message[0][:200] if message else ""
                         problems.append((f"{case.get('classname', '?')}.{case.get('name', '?')}", f"{kind}: {first}"))
 
-    lines = ["## Core tests", ""]
+    lines = [f"## {title}", ""]
     if not paths:
         lines.append("No JUnit XML found (" + ", ".join(f"`{p}`" for p in patterns) + ").")
     else:
@@ -61,4 +61,8 @@ def main(patterns):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:] or ["core/*/build/test-results/test/*.xml"]))
+    args = sys.argv[1:]
+    title = "Core tests"
+    if args and args[0].startswith("--title="):
+        title = args.pop(0).split("=", 1)[1]
+    sys.exit(main(args or ["core/*/build/test-results/test/*.xml"], title))
