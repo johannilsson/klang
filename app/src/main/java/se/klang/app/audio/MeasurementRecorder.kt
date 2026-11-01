@@ -27,12 +27,8 @@ import se.klang.sessions.CaptureEvent
 import se.klang.sessions.EffectState
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
-import kotlin.math.log10
 import kotlin.math.max
-import kotlin.math.min
 
 /**
  * Fixed-length mono PCM capture for one measurement attempt.
@@ -45,7 +41,7 @@ import kotlin.math.min
  * - Prefers the built-in microphone and records the routed device; route changes, silencing by the
  *   system, read errors and suspected overruns become [CaptureEvent]s that invalidate the attempt.
  * - The capture loop only copies samples into a preallocated array on a dedicated urgent-audio
- *   thread. Conversion, analysis and storage happen after capture ends.
+ *   thread ([CaptureLoop]). Conversion, analysis and storage happen after capture ends.
  */
 class MeasurementRecorder(private val context: Context) {
 
@@ -104,23 +100,19 @@ class MeasurementRecorder(private val context: Context) {
             val isFloat = record.audioFormat == AudioFormat.ENCODING_PCM_FLOAT
             val total = (durationSeconds * rate).toInt()
             val out = FloatArray(total)
-            val shortBuf = if (isFloat) null else ShortArray(rate / 50)
-            val chunk = rate / 50 // 20 ms reads
+            val reader = AudioRecordReader(record, isFloat, rate / 50)
 
-            val initialDeviceId = AtomicInteger(NO_DEVICE)
+            val routes = RouteTracker()
             val routingListener = AudioRouting.OnRoutingChangedListener { router ->
                 val d = router.routedDevice
-                // The first callback reports the initial route; only later differences are changes.
-                if (d != null && initialDeviceId.compareAndSet(NO_DEVICE, d.id)) return@OnRoutingChangedListener
-                if (d == null || d.id != initialDeviceId.get()) {
-                    events += CaptureEvent("ROUTE_CHANGED", framesRead.get(), d?.let { "${AudioCapabilities.typeName(it.type)} ${it.productName}" } ?: "no input device")
-                }
+                routes.onRouted(d?.id, d?.let { "${AudioCapabilities.typeName(it.type)} ${it.productName}" }.orEmpty(), framesRead.get())
+                    ?.let { events += it }
             }
             record.addOnRoutingChangedListener(routingListener, handler)
             val recordingCallback = object : AudioManager.AudioRecordingCallback() {
                 override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>) {
                     val mine = configs.firstOrNull { it.clientAudioSessionId == record.audioSessionId } ?: return
-                    if (mine.isClientSilenced) events += CaptureEvent("SILENCED", framesRead.get(), "System silenced this capture (another app or a call took the microphone)")
+                    CaptureDiagnostics.silenced(mine.isClientSilenced, framesRead.get())?.let { events += it }
                 }
             }
             am.registerAudioRecordingCallback(recordingCallback, handler)
@@ -135,52 +127,16 @@ class MeasurementRecorder(private val context: Context) {
                     return@withContext Outcome.Failed("Microphone did not start (is another app recording?)")
                 }
                 routedAtStart = record.routedDevice
-                routedAtStart?.let { initialDeviceId.compareAndSet(NO_DEVICE, it.id) }
+                routedAtStart?.let { routes.start(it.id) }
                 notes += "bufferSizeInFrames=${record.bufferSizeInFrames}"
                 record.activeRecordingConfiguration?.let { describeConfig(it, notes) }
                     ?: notes.add("activeRecordingConfiguration unavailable")
 
-                val ts = AudioTimestamp()
-                var lagBaseline: Long? = null
-                val bufferFrames = record.bufferSizeInFrames.toLong()
-                var overrunReported = false
-                var lastProgress = 0L
-                var peakSince = 0f
-                var pos = 0
-                while (pos < total) {
-                    cancelReason?.let { return@withContext Outcome.Cancelled(it) }
-                    val n = min(chunk, total - pos)
-                    val got = if (isFloat) {
-                        record.read(out, pos, n, AudioRecord.READ_BLOCKING)
-                    } else {
-                        val r = record.read(shortBuf!!, 0, n, AudioRecord.READ_BLOCKING)
-                        for (i in 0 until max(0, r)) out[pos + i] = shortBuf[i] / 32768f
-                        r
-                    }
-                    if (got < 0) {
-                        events += CaptureEvent("READ_ERROR", pos.toLong(), "AudioRecord.read returned $got")
-                        return@withContext Outcome.Failed("Capture failed (error $got)", events.toList())
-                    }
-                    if (got < n) events += CaptureEvent("SHORT_READ", pos.toLong(), "$got of $n frames")
-                    for (i in pos until pos + max(0, got)) { val a = abs(out[i]); if (a > peakSince) peakSince = a }
-                    pos += got
-                    framesRead.set(pos.toLong())
-
-                    // Overrun heuristic: the HAL frame position running ahead of what we have read
-                    // by more than the whole buffer means frames were dropped.
-                    if (!overrunReported && record.getTimestamp(ts, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
-                        val lag = ts.framePosition - pos
-                        val base = lagBaseline ?: lag.also { lagBaseline = it }
-                        if (lag - base > bufferFrames) {
-                            events += CaptureEvent("OVERRUN", pos.toLong(), "Capture fell ${lag - base} frames behind (buffer $bufferFrames)")
-                            overrunReported = true
-                        }
-                    }
-                    if (pos - lastProgress >= rate / 20) {
-                        lastProgress = pos.toLong()
-                        onProgress(pos.toDouble() / rate, if (peakSince > 0f) 20.0 * log10(peakSince.toDouble()) else -120.0)
-                        peakSince = 0f
-                    }
+                val loop = CaptureLoop(rate, record.bufferSizeInFrames.toLong(), events, framesRead)
+                when (val end = loop.run(reader, out, { cancelReason }, onProgress)) {
+                    is CaptureLoop.End.Cancelled -> return@withContext Outcome.Cancelled(end.reason)
+                    is CaptureLoop.End.Failed -> return@withContext Outcome.Failed(end.message, events.toList())
+                    CaptureLoop.End.Completed -> Unit
                 }
                 routedAtEnd = record.routedDevice
             } finally {
@@ -207,9 +163,10 @@ class MeasurementRecorder(private val context: Context) {
                 androidRelease = Build.VERSION.RELEASE,
                 androidSdkInt = Build.VERSION.SDK_INT,
             )
-            if (routedAtStart != null && routedAtEnd != null && routedAtStart.id != routedAtEnd.id && events.none { it.type == "ROUTE_CHANGED" }) {
-                events += CaptureEvent("ROUTE_CHANGED", framesRead.get(), "Input device changed from ${routedAtStart.productName} to ${routedAtEnd.productName}")
-            }
+            CaptureDiagnostics.routeChangedAtEnd(
+                routedAtStart?.id, routedAtStart?.productName?.toString(), routedAtEnd?.id, routedAtEnd?.productName?.toString(),
+                events, framesRead.get(),
+            )?.let { events += it }
             Outcome.Completed(out, rate, config, events.toList())
         } finally {
             effectHandles.forEach { runCatching { it.release() } }
@@ -217,8 +174,20 @@ class MeasurementRecorder(private val context: Context) {
         }
     }
 
-    private companion object {
-        const val NO_DEVICE = Int.MIN_VALUE
+    /** [PcmReader] over an [AudioRecord]: float reads directly, PCM16 through a preallocated buffer. */
+    private class AudioRecordReader(private val record: AudioRecord, isFloat: Boolean, chunkFrames: Int) : PcmReader {
+        private val shortBuf = if (isFloat) null else ShortArray(chunkFrames)
+        private val ts = AudioTimestamp()
+
+        override fun read(out: FloatArray, offset: Int, frames: Int): Int {
+            val buf = shortBuf ?: return record.read(out, offset, frames, AudioRecord.READ_BLOCKING)
+            val r = record.read(buf, 0, frames, AudioRecord.READ_BLOCKING)
+            for (i in 0 until max(0, r)) out[offset + i] = buf[i] / 32768f
+            return r
+        }
+
+        override fun framePosition(): Long =
+            if (record.getTimestamp(ts, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) ts.framePosition else PcmReader.NO_POSITION
     }
 
     @SuppressLint("MissingPermission")
