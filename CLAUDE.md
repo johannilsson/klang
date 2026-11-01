@@ -58,6 +58,12 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   non-LTS JDK, and try a newer LTS locally before changing CI.
 - Unzip user-provided exports into a **new** directory and never `rm -rf` (the safety check blocks it, and it
   is not needed).
+- **Parallel agents in git worktrees** may start from an old commit, not from your branch. Tell each agent to
+  run `git checkout -b <its-branch> <your-branch>` first and check `git log -1`, then merge their branches one at
+  a time and run the tests after each merge. Each worktree also needs its own `local.properties`.
+- **WebFetch and the shell use different network paths**: a host added to the allowed domains can still fail in
+  WebFetch (DNS error) while `curl` in the shell reaches it. Download public reference documents with `curl` into
+  a new scratch directory and read them there (`pdftotext -layout` is installed).
 
 ## Analysing a user's export or WAV
 
