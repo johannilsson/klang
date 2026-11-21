@@ -108,7 +108,7 @@ android {
 // Host (unit) tests are on for release too, although CI only runs the debug ones. AGP 9 turns them off for
 // release by default, and its Compose Preview model then fails for that variant. Android Studio only asks for
 // the selected variant, but kotlin-lsp syncs every variant, so its whole Gradle sync failed and the app module
-// got no code intelligence (Kotlin/kotlin-lsp#291).
+// got no code intelligence. Details: https://github.com/johannilsson/lsp-client/issues/21
 androidComponents {
     beforeVariants(selector().withBuildType("release")) {
         (it as com.android.build.api.variant.HasHostTestsBuilder)

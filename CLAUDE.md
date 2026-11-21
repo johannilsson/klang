@@ -99,7 +99,8 @@ behaviour that matters here (source, effects, headroom): that needs a real phone
   `core` build are one workspace. Generate `BuildConfig` before starting the server
   (`./gradlew :app:generateDebugBuildConfig`): kotlin-lsp does not generate it, so on a fresh clone it is an
   `Unresolved reference` error, and a file generated while the server runs is only seen after a restart. Keep
-  host tests enabled for `release` in `app/build.gradle.kts`: without them kotlin-lsp's Gradle sync fails.
+  host tests enabled for `release` in `app/build.gradle.kts`: without them kotlin-lsp's Gradle sync fails
+  (https://github.com/johannilsson/lsp-client/issues/21). `lsp-client session start --wait` then exits with 3.
 
 ## Analysing a user's export or WAV
 
